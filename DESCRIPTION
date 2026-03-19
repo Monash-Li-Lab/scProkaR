@@ -1,11 +1,46 @@
-Package: BacTrajR
-Title: What the Package Does (One Line, Title Case)
-Version: 0.0.0.9000
+Package: SCProkaR
+Title: Microbial Single-Cell RNA-Seq Analysis for Bacterial Systems
+Version: 0.1.0
 Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
-Description: What the package does (one paragraph).
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
+    person("Jinxin", "Zhao", , "jinxin.zhao@example.org", role = c("aut", "cre"))
+Description: Provides a SingleCellExperiment-centered workflow for microbial
+    single-cell RNA-seq analysis. The package standardizes bacterial input
+    objects, computes quality-control metrics including rRNA fractions,
+    performs batch integration with multiple backends, benchmarks integrated
+    embeddings with scIB-inspired metrics, builds PAGA-inspired trajectory
+    graphs, and supports pseudobulk and time-series differential expression.
+License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
+Depends:
+    R (>= 4.2)
+Imports: 
+    ggplot2,
+    Matrix,
+    S4Vectors,
+    SingleCellExperiment,
+    SummarizedExperiment
+Suggests: 
+    batchelor,
+    cluster,
+    edgeR,
+    harmony,
+    igraph,
+    irlba,
+    knitr,
+    MASS,
+    RANN,
+    rmarkdown,
+    scater,
+    scran,
+    SeuratObject,
+    slingshot,
+    testthat (>= 3.0.0),
+    tradeSeq,
+    uwot
+Config/testthat/edition: 3
+LazyData: false
+VignetteBuilder: knitr
+URL: https://github.com/jinxinz/SCProkaR
+BugReports: https://github.com/jinxinz/SCProkaR/issues

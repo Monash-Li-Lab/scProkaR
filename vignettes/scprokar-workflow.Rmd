@@ -1,0 +1,361 @@
+---
+title: "SCProkaR Two-Sample Workflow"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{SCProkaR Two-Sample Workflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 6,
+  fig.height = 5
+)
+
+if (file.exists("../DESCRIPTION")) {
+  if (requireNamespace("devtools", quietly = TRUE)) {
+    devtools::load_all("..")
+  } else {
+    library(SCProkaR)
+  }
+} else {
+  library(SCProkaR)
+}
+
+#run_workflow <- FALSE
+run_workflow <- TRUE
+```
+
+## Overview
+
+This vignette shows a practical `SCProkaR` workflow for two microbial
+single-cell RNA-seq samples stored as Seurat `.rds` objects. The workflow:
+
+- loads each sample directly with `CreateBacObject()`
+- computes QC metrics including rRNA fraction
+- filters low-quality cells
+- merges samples safely with `MergeBacObjects()`
+- performs batch integration
+- visualizes unintegrated and integrated structure with Seurat-style panels
+- optionally benchmarks the integration
+
+`SCProkaR` keeps the main analysis object as a
+`SingleCellExperiment`, while still accepting Seurat input for convenient
+conversion.
+
+## Load packages
+
+```{r}
+library(SummarizedExperiment)
+library(SingleCellExperiment)
+```
+
+## Load Seurat `.rds` objects
+
+Replace the file paths below with your own sample files.
+
+```{r eval = run_workflow}
+seu1 <- readRDS("../inst/extdata/sample1.rds")
+seu2 <- readRDS("../inst/extdata/sample2.rds")
+```
+
+For clarity, add sample origin columns if they do not already exist:
+
+```{r eval = run_workflow}
+seu1$sample_id <- "sample1"
+seu1$batch <- "sample1"
+
+seu2$sample_id <- "sample2"
+seu2$batch <- "sample2"
+```
+
+## Create SCProkaR objects
+
+`CreateBacObject()` can extract counts, metadata, and existing reductions such
+as `pca` and `umap` directly from each Seurat object.
+
+```{r eval = run_workflow}
+sce1 <- CreateBacObject(
+  seu1,
+  seurat_assay = "RNA",
+  seurat_layer = "counts",
+  sample_col = "sample_id",
+  batch_col = "batch"
+)
+
+sce2 <- CreateBacObject(
+  seu2,
+  seurat_assay = "RNA",
+  seurat_layer = "counts",
+  sample_col = "sample_id",
+  batch_col = "batch"
+)
+```
+
+## Quality control
+
+Compute QC metrics on each sample separately:
+
+```{r eval = run_workflow}
+sce1 <- RunBacQC(sce1)
+sce2 <- RunBacQC(sce2)
+```
+
+The QC results are stored in `colData(sce)`:
+
+```{r eval = run_workflow}
+head(as.data.frame(colData(sce1))[, c(
+  "total_counts",
+  "detected_features",
+  "rrna_fraction",
+  "pct_rrna"
+)])
+```
+
+Filter cells using your chosen thresholds:
+
+```{r eval = run_workflow}
+sce1 <- FilterBacCells(
+  sce1,
+  min_counts = 50,
+  min_features = 50,
+  max_rrna_fraction = 0.20
+)
+
+sce2 <- FilterBacCells(
+  sce2,
+  min_counts = 50,
+  min_features = 50,
+  max_rrna_fraction = 0.20
+)
+```
+
+## Merge samples
+
+Use `MergeBacObjects()` instead of `cbind()` to avoid duplicate-barcode issues
+and to align genes safely across samples.
+
+```{r eval = run_workflow}
+sce <- MergeBacObjects(sce1, sce2, gene_mode = "intersect")
+```
+
+If cell barcodes overlap between samples, `MergeBacObjects()` automatically
+makes them unique and stores the original barcode in
+`colData(sce)$original_cell_id`.
+
+If both input objects contain compatible reductions such as `pca` and `umap`,
+`MergeBacObjects()` carries them forward into the merged object.
+
+## Visualize unintegrated structure
+
+If your Seurat objects already contained a UMAP, it is typically available after
+conversion:
+
+```{r eval = run_workflow}
+PlotReduction(sce, reduction = "umap", colour_by = "batch")
+PlotReduction(sce, reduction = "umap", colour_by = "seurat_clusters")
+```
+
+Interpretation:
+
+- colouring by `batch` shows whether samples are separated before integration
+- colouring by `seurat_clusters` or another biological label shows whether
+  expected structure is present
+
+`PlotReduction(..., facet_by = "batch")` is the `SCProkaR` equivalent of
+Seurat's `split.by` visualization.
+
+## Run integration
+
+### Option 1: MNN
+
+```{r eval = run_workflow}
+sce <- IntegrateBacData(
+  sce,
+  batch_col = "batch",
+  method = "mnn",
+  dims = 1:30
+)
+```
+
+### Option 2: Harmony
+
+```{r eval = run_workflow}
+sce <- IntegrateBacData(
+  sce,
+  batch_col = "batch",
+  method = "harmony",
+  dims = 1:30
+)
+```
+
+The output embedding is stored as `integrated_mnn` or `integrated_harmony`.
+
+## Visualize the integrated latent space
+
+```{r eval = run_workflow}
+PlotReduction(sce, reduction = "integrated_mnn", colour_by = "batch")
+PlotReduction(sce, reduction = "integrated_mnn", colour_by = "seurat_clusters")
+PlotReduction(sce, reduction = "integrated_harmony", colour_by = "batch")
+PlotReduction(sce, reduction = "integrated_harmony", colour_by = "seurat_clusters")
+```
+
+This gives a quick direct view of the integrated latent space before running a
+new UMAP.
+
+## Run UMAP on the integrated embedding
+
+`RunIntegratedUMAP()` computes a UMAP from any stored embedding:
+
+```{r eval = run_workflow}
+sce <- RunIntegratedUMAP(sce, reduction = "integrated_mnn")
+sce <- RunIntegratedUMAP(sce, reduction = "integrated_harmony")
+```
+
+This stores a new reduced dimension named `umap_integrated_mnn`.
+
+```{r eval = run_workflow}
+PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "batch")
+PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "seurat_clusters")
+PlotReduction(sce, reduction = "umap_integrated_harmony", colour_by = "batch")
+PlotReduction(sce, reduction = "umap_integrated_harmony", colour_by = "seurat_clusters")
+```
+
+## Cluster cells after integration
+
+Trajectory analysis and pseudobulk analysis should use clusters identified from
+the integrated embedding rather than the pre-integration batch structure.
+
+`RunIntegratedClustering()` builds a kNN graph on the corrected embedding and
+stores the resulting labels in `colData(sce)`.
+
+```{r eval = run_workflow}
+sce <- RunIntegratedClustering(
+  sce,
+  reduction = "integrated_mnn",
+  cluster_col = "integrated_clusters",
+  k = 20,
+  resolution = 1
+)
+```
+
+Here, `k` controls the neighbour graph size, while `resolution` controls how
+finely that graph is partitioned into clusters. This mirrors the Seurat logic
+of `FindNeighbors(k.param = ...)` followed by `FindClusters(resolution = ...)`.
+
+Visualize the integrated clusters on the corrected UMAP:
+
+```{r eval = run_workflow}
+PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "integrated_clusters")
+PlotReduction(
+  sce,
+  reduction = "umap_integrated_mnn",
+  colour_by = "integrated_clusters",
+  facet_by = "batch"
+)
+```
+
+## Seurat-style integration summary panels
+
+The Seurat integration tutorial emphasizes three visual checks after alignment:
+
+- compare unintegrated and integrated embeddings coloured by batch
+- compare unintegrated and integrated embeddings coloured by cluster or label
+- split the integrated embedding by batch/condition while keeping cluster
+  colours fixed
+
+`SCProkaR` provides `PlotIntegrationOverview()` for this pattern.
+
+### MNN example
+
+```{r eval = run_workflow}
+mnn_plots <- PlotIntegrationOverview(
+  sce,
+  unintegrated_reduction = "umap",
+  integrated_reduction = "umap_integrated_mnn",
+  batch_col = "batch",
+  label_col = "integrated_clusters",
+  split_by = "batch"
+)
+
+mnn_plots$unintegrated_by_batch
+mnn_plots$integrated_by_batch
+mnn_plots$unintegrated_by_label
+mnn_plots$integrated_by_label
+mnn_plots$integrated_split
+```
+
+### Harmony example
+
+```{r eval = run_workflow}
+harmony_plots <- PlotIntegrationOverview(
+  sce,
+  unintegrated_reduction = "umap",
+  integrated_reduction = "umap_integrated_harmony",
+  batch_col = "batch",
+  label_col = "integrated_clusters",
+  split_by = "batch"
+)
+
+harmony_plots$unintegrated_by_batch
+harmony_plots$integrated_by_batch
+harmony_plots$unintegrated_by_label
+harmony_plots$integrated_by_label
+harmony_plots$integrated_split
+```
+
+Interpretation:
+
+- `unintegrated_by_batch` should show stronger sample separation than
+  `integrated_by_batch`
+- `integrated_by_label` should preserve biologically meaningful group
+  separation
+- `integrated_split` is the closest equivalent to Seurat's
+  `DimPlot(..., split.by = "stim")`
+
+After successful integration:
+
+- batches should mix better than in the original UMAP
+- biological clusters should remain interpretable
+
+## Benchmark integration quality
+
+If you have a biological label such as `seurat_clusters`, you can benchmark the
+integration with the package's scIB-inspired metric panel:
+
+```{r eval = run_workflow}
+bench <- BenchmarkIntegration(
+  sce,
+  batch_col = "batch",
+  label_col = "seurat_clusters",
+  methods = NULL
+)
+
+bench$ranking
+bench$plots$overall
+bench$plots$heatmap
+```
+
+## Save the processed object
+
+```{r eval = run_workflow}
+saveRDS(sce, file = "scprokar_integrated_sce.rds")
+```
+
+## Notes
+
+- `CreateBacObject()` accepts Seurat input directly, but the downstream analysis
+  object remains a `SingleCellExperiment`.
+- `MergeBacObjects()` is the recommended merge path for multiple samples in
+  `SCProkaR`.
+- `PlotReduction()` is a convenient visualization helper for both original and
+  integrated reductions.
+- `PlotIntegrationOverview()` provides the standard Seurat-style integration
+  comparison panels.
+- `RunIntegratedClustering()` provides the post-integration cluster labels that
+  should feed trajectory and pseudobulk workflows.
+- `RunIntegratedUMAP()` works on integrated embeddings as well as any custom
+  latent space registered with `RegisterIntegrationEmbedding()`.

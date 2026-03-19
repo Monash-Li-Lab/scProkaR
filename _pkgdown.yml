@@ -1,0 +1,21 @@
+url: https://jinxinz.github.io/SCProkaR/
+title: SCProkaR
+template:
+  bootstrap: 5
+reference:
+  - title: Data Structures
+    contents:
+      - CreateBacObject
+      - RunBacQC
+      - FilterBacCells
+  - title: Integration
+    contents:
+      - IntegrateBacData
+      - RegisterIntegrationEmbedding
+      - BenchmarkIntegration
+  - title: Trajectory And Differential Expression
+    contents:
+      - RunBacPAGA
+      - AggregatePseudobulk
+      - RunPseudobulkDE
+      - RunTimeSeriesDE
