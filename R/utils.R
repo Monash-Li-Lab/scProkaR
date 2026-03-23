@@ -65,6 +65,9 @@ NULL
   if (inherits(x, "dgCMatrix")) {
     return(x)
   }
+  if (is.matrix(x)) {
+    x <- Matrix::Matrix(x, sparse = TRUE)
+  }
   methods::as(x, "dgCMatrix")
 }
 

@@ -25,7 +25,6 @@ if (file.exists("../DESCRIPTION")) {
   library(SCProkaR)
 }
 
-#run_workflow <- FALSE
 run_workflow <- TRUE
 ```
 
@@ -226,8 +225,8 @@ PlotReduction(sce, reduction = "umap_integrated_harmony", colour_by = "seurat_cl
 
 ## Cluster cells after integration
 
-Trajectory analysis and pseudobulk analysis should use clusters identified from
-the integrated embedding rather than the pre-integration batch structure.
+Future downstream analyses should use clusters identified from the integrated
+embedding rather than the pre-integration batch structure.
 
 `RunIntegratedClustering()` builds a kNN graph on the corrected embedding and
 stores the resulting labels in `colData(sce)`.
@@ -367,7 +366,7 @@ saveRDS(sce, file = "scprokar_integrated_sce.rds")
   integrated reductions.
 - `PlotIntegrationOverview()` provides the standard Seurat-style integration
   comparison panels.
-- `RunIntegratedClustering()` provides the post-integration cluster labels that
-  should feed trajectory and pseudobulk workflows.
+- `RunIntegratedClustering()` provides the post-integration cluster labels for
+  future downstream analyses.
 - `RunIntegratedUMAP()` works on integrated embeddings as well as any custom
   latent space registered with `RegisterIntegrationEmbedding()`.
