@@ -1,0 +1,630 @@
+---
+title: "SCProkaR Core Workflow"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{SCProkaR Core Workflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 6,
+  fig.height = 5
+)
+
+if (file.exists("../DESCRIPTION")) {
+  if (requireNamespace("devtools", quietly = TRUE)) {
+    devtools::load_all("..")
+  } else {
+    library(SCProkaR)
+  }
+} else {
+  library(SCProkaR)
+}
+
+run_workflow <- TRUE
+run_de_demo <- TRUE
+```
+
+## Overview
+
+This vignette shows two practical `SCProkaR` workflows:
+
+- a two-sample preprocessing and integration workflow starting from Seurat
+  `.rds` objects
+- a pseudobulk differential-expression workflow on a simulated multi-condition
+  time course
+
+`SCProkaR` keeps the main analysis object as a
+`SingleCellExperiment`, while still accepting Seurat input for convenient
+conversion.
+
+## Load packages
+
+```{r}
+library(SummarizedExperiment)
+library(SingleCellExperiment)
+```
+
+## Load Seurat `.rds` objects
+
+Replace the file paths below with your own sample files.
+
+```{r eval = run_workflow}
+seu1 <- readRDS("../inst/extdata/sample1.rds")
+seu2 <- readRDS("../inst/extdata/sample2.rds")
+```
+
+For clarity, add sample origin columns if they do not already exist:
+
+```{r eval = run_workflow}
+seu1$sample_id <- "sample1"
+seu1$batch <- "sample1"
+
+seu2$sample_id <- "sample2"
+seu2$batch <- "sample2"
+```
+
+## Create SCProkaR objects
+
+`CreateBacObject()` can extract counts, metadata, and existing reductions such
+as `pca` and `umap` directly from each Seurat object.
+
+```{r eval = run_workflow}
+sce1 <- CreateBacObject(
+  seu1,
+  seurat_assay = "RNA",
+  seurat_layer = "counts",
+  sample_col = "sample_id",
+  batch_col = "batch"
+)
+
+sce2 <- CreateBacObject(
+  seu2,
+  seurat_assay = "RNA",
+  seurat_layer = "counts",
+  sample_col = "sample_id",
+  batch_col = "batch"
+)
+```
+
+## Quality control
+
+Compute QC metrics on each sample separately:
+
+```{r eval = run_workflow}
+sce1 <- RunBacQC(sce1)
+sce2 <- RunBacQC(sce2)
+```
+
+The QC results are stored in `colData(sce)`:
+
+```{r eval = run_workflow}
+head(as.data.frame(colData(sce1))[, c(
+  "total_counts",
+  "detected_features",
+  "rrna_fraction",
+  "pct_rrna"
+)])
+```
+
+Filter cells using your chosen thresholds:
+
+```{r eval = run_workflow}
+sce1 <- FilterBacCells(
+  sce1,
+  min_counts = 50,
+  min_features = 50,
+  max_rrna_fraction = 0.20
+)
+
+sce2 <- FilterBacCells(
+  sce2,
+  min_counts = 50,
+  min_features = 50,
+  max_rrna_fraction = 0.20
+)
+```
+
+## Merge samples
+
+Use `MergeBacObjects()` instead of `cbind()` to avoid duplicate-barcode issues
+and to align genes safely across samples.
+
+```{r eval = run_workflow}
+sce <- MergeBacObjects(sce1, sce2, gene_mode = "intersect")
+```
+
+If cell barcodes overlap between samples, `MergeBacObjects()` automatically
+makes them unique and stores the original barcode in
+`colData(sce)$original_cell_id`.
+
+If both input objects contain compatible reductions such as `pca` and `umap`,
+`MergeBacObjects()` carries them forward into the merged object.
+
+## Visualize unintegrated structure
+
+If your Seurat objects already contained a UMAP, it is typically available after
+conversion:
+
+```{r eval = run_workflow}
+PlotReduction(sce, reduction = "umap", colour_by = "batch")
+PlotReduction(sce, reduction = "umap", colour_by = "seurat_clusters")
+```
+
+Interpretation:
+
+- colouring by `batch` shows whether samples are separated before integration
+- colouring by `seurat_clusters` or another biological label shows whether
+  expected structure is present
+
+`PlotReduction(..., facet_by = "batch")` is the `SCProkaR` equivalent of
+Seurat's `split.by` visualization.
+
+## Run integration
+
+### Option 1: MNN
+
+```{r eval = run_workflow}
+sce <- IntegrateBacData(
+  sce,
+  batch_col = "batch",
+  method = "mnn",
+  dims = 1:30
+)
+```
+
+### Option 2: Harmony
+
+```{r eval = run_workflow}
+sce <- IntegrateBacData(
+  sce,
+  batch_col = "batch",
+  method = "harmony",
+  dims = 1:30
+)
+```
+
+The output embedding is stored as `integrated_mnn` or `integrated_harmony`.
+
+## Visualize the integrated latent space
+
+```{r eval = run_workflow}
+PlotReduction(sce, reduction = "integrated_mnn", colour_by = "batch")
+PlotReduction(sce, reduction = "integrated_mnn", colour_by = "seurat_clusters")
+PlotReduction(sce, reduction = "integrated_harmony", colour_by = "batch")
+PlotReduction(sce, reduction = "integrated_harmony", colour_by = "seurat_clusters")
+```
+
+This gives a quick direct view of the integrated latent space before running a
+new UMAP.
+
+## Run UMAP on the integrated embedding
+
+`RunIntegratedUMAP()` computes a UMAP from any stored embedding:
+
+```{r eval = run_workflow}
+sce <- RunIntegratedUMAP(sce, reduction = "integrated_mnn")
+sce <- RunIntegratedUMAP(sce, reduction = "integrated_harmony")
+```
+
+This stores a new reduced dimension named `umap_integrated_mnn`.
+
+```{r eval = run_workflow}
+PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "batch")
+PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "seurat_clusters")
+PlotReduction(sce, reduction = "umap_integrated_harmony", colour_by = "batch")
+PlotReduction(sce, reduction = "umap_integrated_harmony", colour_by = "seurat_clusters")
+```
+
+## Cluster cells after integration
+
+Future downstream analyses should use clusters identified from the integrated
+embedding rather than the pre-integration batch structure.
+
+`RunIntegratedClustering()` builds a kNN graph on the corrected embedding and
+stores the resulting labels in `colData(sce)`.
+
+```{r eval = run_workflow}
+sce <- RunIntegratedClustering(
+  sce,
+  reduction = "integrated_mnn",
+  cluster_col = "integrated_clusters",
+  k = 20,
+  resolution = 1
+)
+```
+
+Here, `k` controls the neighbour graph size, while `resolution` controls how
+finely that graph is partitioned into clusters. This mirrors the Seurat logic
+of `FindNeighbors(k.param = ...)` followed by `FindClusters(resolution = ...)`.
+
+Visualize the integrated clusters on the corrected UMAP:
+
+```{r eval = run_workflow}
+PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "integrated_clusters")
+PlotReduction(
+  sce,
+  reduction = "umap_integrated_mnn",
+  colour_by = "integrated_clusters",
+  facet_by = "batch"
+)
+```
+
+## Seurat-style integration summary panels
+
+The Seurat integration tutorial emphasizes three visual checks after alignment:
+
+- compare unintegrated and integrated embeddings coloured by batch
+- compare unintegrated and integrated embeddings coloured by cluster or label
+- split the integrated embedding by batch/condition while keeping cluster
+  colours fixed
+
+`SCProkaR` provides `PlotIntegrationOverview()` for this pattern.
+
+### MNN example
+
+```{r eval = run_workflow}
+mnn_plots <- PlotIntegrationOverview(
+  sce,
+  unintegrated_reduction = "umap",
+  integrated_reduction = "umap_integrated_mnn",
+  batch_col = "batch",
+  label_col = "integrated_clusters",
+  split_by = "batch"
+)
+
+mnn_plots$unintegrated_by_batch
+mnn_plots$integrated_by_batch
+mnn_plots$unintegrated_by_label
+mnn_plots$integrated_by_label
+mnn_plots$integrated_split
+```
+
+### Harmony example
+
+```{r eval = run_workflow}
+harmony_plots <- PlotIntegrationOverview(
+  sce,
+  unintegrated_reduction = "umap",
+  integrated_reduction = "umap_integrated_harmony",
+  batch_col = "batch",
+  label_col = "integrated_clusters",
+  split_by = "batch"
+)
+
+harmony_plots$unintegrated_by_batch
+harmony_plots$integrated_by_batch
+harmony_plots$unintegrated_by_label
+harmony_plots$integrated_by_label
+harmony_plots$integrated_split
+```
+
+Interpretation:
+
+- `unintegrated_by_batch` should show stronger sample separation than
+  `integrated_by_batch`
+- `integrated_by_label` should preserve biologically meaningful group
+  separation
+- `integrated_split` is the closest equivalent to Seurat's
+  `DimPlot(..., split.by = "stim")`
+
+After successful integration:
+
+- batches should mix better than in the original UMAP
+- biological clusters should remain interpretable
+
+## Benchmark integration quality
+
+If you have a biological label such as `seurat_clusters`, you can benchmark the
+integration with the package's scIB-inspired metric panel:
+
+```{r eval = run_workflow}
+bench <- BenchmarkIntegration(
+  sce,
+  batch_col = "batch",
+  label_col = "seurat_clusters",
+  methods = NULL
+)
+
+bench$ranking
+bench$plots$overall
+bench$plots$key_metrics
+bench$plots$batch_removal
+bench$plots$bio_conservation
+bench$plots$tradeoff
+bench$plots$heatmap
+```
+
+The key comparison figures are:
+
+- `key_metrics`: per-metric score comparison across methods
+- `batch_removal`: average of the batch-removal metrics
+- `bio_conservation`: average of the biological-conservation metrics
+- `tradeoff`: batch-removal versus bio-conservation, which is often the most
+  useful summary of integration quality
+
+## Pseudobulk differential expression
+
+`SCProkaR` also includes pseudobulk differential-expression utilities built
+around edgeR. For this section we switch to a simulated multi-drug time-course
+ because it contains treatment labels, repeated timepoints, and known temporal
+ structure out of the box.
+
+### Simulate a multi-condition time course
+
+```{r eval = run_de_demo}
+set.seed(101)
+
+sce_de <- simulate_tata_multidrug_sce(
+  n_cells = 1800,
+  n_features = 80,
+  n_pcs = 20,
+  seed = 101
+)
+
+sce_de$timepoint_factor <- factor(
+  sce_de$timepoint,
+  levels = sort(unique(sce_de$timepoint))
+)
+```
+
+Visualize the simulated embedding before aggregation:
+
+```{r eval = run_de_demo}
+PlotReduction(sce_de, reduction = "UMAP", colour_by = "condition")
+PlotReduction(sce_de, reduction = "UMAP", colour_by = "timepoint_factor")
+```
+
+### Create pseudo-replicate sample labels
+
+Because the simulator returns cells rather than biological replicates, we split
+cells inside each `condition x timepoint` stratum into pseudo-replicates. In a
+real experiment you would usually aggregate by the true biological sample,
+donor, or experimental unit.
+
+```{r eval = run_de_demo}
+assign_pseudoreplicates <- function(
+    sce,
+    group_cols = c("condition", "timepoint"),
+    n_reps = 3,
+    seed = 101
+) {
+  set.seed(seed)
+
+  meta <- as.data.frame(SummarizedExperiment::colData(sce))
+  strata <- interaction(meta[, group_cols, drop = FALSE], drop = TRUE, lex.order = TRUE)
+  rep_id <- integer(ncol(sce))
+
+  for (level_name in levels(strata)) {
+    idx <- which(strata == level_name)
+    rep_id[idx] <- sample(rep(seq_len(n_reps), length.out = length(idx)))
+  }
+
+  sce$pb_replicate <- factor(rep_id, levels = seq_len(n_reps))
+  sce$pb_sample_id <- paste(
+    "pb",
+    as.character(sce$condition),
+    paste0("t", sce$timepoint),
+    paste0("r", sce$pb_replicate),
+    sep = "_"
+  )
+
+  sce
+}
+
+sce_de <- assign_pseudoreplicates(sce_de, n_reps = 3, seed = 101)
+
+with(
+  as.data.frame(SummarizedExperiment::colData(sce_de)),
+  table(condition, timepoint, pb_replicate)[, , 1]
+)
+```
+
+### Aggregate pseudobulk samples
+
+`aggregate_pseudobulk()` sums counts across cells that share the same sample
+definition and keeps the sample-level metadata alongside the aggregated counts.
+
+```{r eval = run_de_demo}
+pb <- aggregate_pseudobulk(
+  sce_de,
+  sample_cols = c("pb_sample_id", "condition", "timepoint", "pb_replicate"),
+  aggregation = "sum",
+  min_cells = 15
+)
+
+pb <- normalize_pseudobulk(pb, method = "TMM")
+pb$timepoint_factor <- factor(pb$timepoint, levels = sort(unique(pb$timepoint)))
+
+pb_pca <- stats::prcomp(
+  t(as.matrix(SummarizedExperiment::assay(pb, "logcounts"))),
+  scale. = TRUE
+)
+SingleCellExperiment::reducedDim(pb, "pb_pca") <- pb_pca$x[, 1:2, drop = FALSE]
+```
+
+```{r eval = run_de_demo}
+PlotReduction(pb, reduction = "pb_pca", colour_by = "condition")
+PlotReduction(pb, reduction = "pb_pca", colour_by = "timepoint_factor")
+```
+
+### Pairwise differential expression
+
+The first DE mode compares one group against another. A common default is to
+compare each timepoint against baseline while adjusting for treatment as a
+covariate.
+
+```{r eval = run_de_demo}
+pairwise_time <- run_edger_pairwise_de(
+  pb,
+  group_col = "timepoint",
+  covariates = "condition",
+  contrast_type = "reference",
+  reference_level = "0",
+  normalization = "TMM"
+)
+
+names(pairwise_time$tables)
+```
+
+```{r eval = run_de_demo}
+pairwise_sig_counts <- aggregate(
+  significant ~ contrast,
+  data = pairwise_time$combined_table,
+  FUN = sum
+)
+
+ggplot2::ggplot(pairwise_sig_counts, ggplot2::aes(x = contrast, y = significant, fill = contrast)) +
+  ggplot2::geom_col(width = 0.72) +
+  ggplot2::theme_classic() +
+  ggplot2::theme(legend.position = "none") +
+  ggplot2::labs(
+    title = "Significant genes in timepoint-versus-baseline contrasts",
+    x = "contrast",
+    y = "number of DE genes"
+  )
+```
+
+Inspect one contrast in more detail:
+
+```{r eval = run_de_demo}
+head(
+  pairwise_time$tables[["24_vs_0"]][
+    order(pairwise_time$tables[["24_vs_0"]]$FDR),
+    c("gene", "logFC", "FDR")
+  ],
+  10
+)
+
+plot_pairwise_de_volcano(
+  pairwise_time,
+  contrast = "24_vs_0",
+  fdr_cutoff = 0.05,
+  lfc_cutoff = 0.5,
+  top_n_labels = 8
+)
+
+plot_pairwise_de_ma(
+  pairwise_time,
+  contrast = "24_vs_0",
+  fdr_cutoff = 0.05
+)
+```
+
+`SCProkaR` also supports composite treatment-timepoint groups when you want an
+explicit contrast such as `drug_A at 24h` versus `drug_A at 0h`.
+
+```{r eval = run_de_demo}
+pairwise_composite <- run_edger_pairwise_de(
+  pb,
+  group_col = "condition",
+  combine_group_cols = c("condition", "timepoint"),
+  contrast_type = "manual",
+  manual_pairs = data.frame(
+    group1 = c("drug_A__24", "drug_C__48", "drug_B__96"),
+    group2 = c("drug_A__0", "drug_C__0", "drug_B__0"),
+    stringsAsFactors = FALSE
+  ),
+  normalization = "TMM"
+)
+
+plot_pairwise_de_volcano(
+  pairwise_composite,
+  contrast = "drug_A__24_vs_drug_A__0",
+  fdr_cutoff = 0.05,
+  lfc_cutoff = 0.5,
+  top_n_labels = 8
+)
+```
+
+### Spline-based time-series differential expression
+
+The second DE mode treats time as continuous and uses a spline basis to detect
+genes that change over time within each condition.
+
+```{r eval = run_de_demo}
+spline_de <- run_edger_spline_de(
+  pb,
+  time_col = "timepoint",
+  condition_col = "condition",
+  df = 3,
+  normalization = "TMM",
+  return_curve_for = "significant"
+)
+
+names(spline_de$by_condition)
+```
+
+```{r eval = run_de_demo}
+spline_sig_counts <- aggregate(
+  significant ~ condition,
+  data = spline_de$combined_table,
+  FUN = sum
+)
+
+ggplot2::ggplot(spline_sig_counts, ggplot2::aes(x = condition, y = significant, fill = condition)) +
+  ggplot2::geom_col(width = 0.72) +
+  ggplot2::theme_classic() +
+  ggplot2::theme(legend.position = "none") +
+  ggplot2::labs(
+    title = "Genes with significant temporal change within each condition",
+    x = "condition",
+    y = "number of spline DE genes"
+  )
+```
+
+```{r eval = run_de_demo}
+top_by_condition <- lapply(
+  split(spline_de$combined_table, spline_de$combined_table$condition),
+  function(df) {
+    keep_cols <- intersect(c("gene", "F", "PValue", "FDR"), colnames(df))
+    utils::head(df[order(df$FDR), keep_cols, drop = FALSE], 6)
+  }
+)
+
+top_by_condition
+```
+
+Plot fitted curves for genes with strong time-dependent changes:
+
+```{r eval = run_de_demo}
+curve_genes <- unique(unlist(lapply(top_by_condition, function(df) df$gene[seq_len(min(2, nrow(df)))])))
+
+plot_time_series_deg_curves(
+  spline_de,
+  genes = curve_genes,
+  ncol = 2
+)
+```
+
+For users who prefer a one-step interface, `run_scproka_de()` wraps the
+pseudobulk and edgeR steps into one function call.
+
+## Save the processed object
+
+```{r eval = run_workflow}
+saveRDS(sce, file = "scprokar_integrated_sce.rds")
+```
+
+## Notes
+
+- `CreateBacObject()` accepts Seurat input directly, but the downstream analysis
+  object remains a `SingleCellExperiment`.
+- `MergeBacObjects()` is the recommended merge path for multiple samples in
+  `SCProkaR`.
+- `PlotReduction()` is a convenient visualization helper for both original and
+  integrated reductions.
+- `PlotIntegrationOverview()` provides the standard Seurat-style integration
+  comparison panels.
+- `RunIntegratedClustering()` provides the post-integration cluster labels for
+  future downstream analyses.
+- `RunIntegratedUMAP()` works on integrated embeddings as well as any custom
+  latent space registered with `RegisterIntegrationEmbedding()`.
+- Pseudobulk differential expression is covered in the same package workflow
+  via `aggregate_pseudobulk()`, `run_edger_pairwise_de()`, and
+  `run_edger_spline_de()`.
+- Time-aware trajectory analysis is documented separately in the TATA vignette.

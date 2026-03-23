@@ -1,0 +1,374 @@
+---
+title: "Pseudobulk Differential Expression Tutorial"
+format:
+  html:
+    toc: true
+    code-fold: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+# Overview
+
+This vignette shows how to use the pseudobulk and edgeR differential expression
+functions in `scProkaR` on simulated single-cell data.
+
+The tutorial covers four steps:
+
+1. simulate a branching multi-drug dataset
+2. create pseudo-replicate sample labels for pseudobulk aggregation
+3. run pairwise edgeR differential expression
+4. run spline-based time-series differential expression and plot fitted curves
+
+Because the simulator returns single cells rather than biological replicates, we
+create replicate-like pseudobulk groups within each `condition x timepoint`
+stratum. This is useful for demonstrating the workflow, but for real analyses
+you would usually pseudobulk by true sample, donor, or experimental unit.
+
+# Load the package
+
+```{r}
+library(devtools)
+devtools::load_all("..", quiet = TRUE, reset = TRUE)
+
+library(ggplot2)
+library(SingleCellExperiment)
+```
+
+# Simulate a multi-drug branching dataset
+
+The multidrug simulator is a good fit for DE tutorials because it already
+contains:
+
+- real experimental `timepoint`
+- `condition` labels
+- gradual progression rather than isolated clusters
+- branch-specific expression programs
+
+```{r}
+set.seed(101)
+
+sce <- simulate_tata_multidrug_sce(
+  n_cells = 5000,
+  n_features = 100,
+  n_pcs = 20,
+  seed = 101
+)
+
+table(sce$condition, sce$timepoint)
+```
+
+```{r}
+umap_df <- as.data.frame(SingleCellExperiment::reducedDim(sce, "UMAP"))
+colnames(umap_df)[1:2] <- c("UMAP_1", "UMAP_2")
+umap_df$condition <- sce$condition
+umap_df$timepoint <- factor(sce$timepoint, levels = sort(unique(sce$timepoint)))
+
+ggplot(umap_df, aes(UMAP_1, UMAP_2, colour = condition)) +
+  geom_point(size = 0.45, alpha = 0.75) +
+  theme_classic() +
+  labs(title = "Simulated multidrug dataset", colour = "condition")
+```
+
+```{r}
+ggplot(umap_df, aes(UMAP_1, UMAP_2, colour = timepoint)) +
+  geom_point(size = 0.45, alpha = 0.75) +
+  scale_colour_viridis_d(option = "plasma") +
+  theme_classic() +
+  labs(title = "Simulated dataset coloured by timepoint", colour = "timepoint")
+```
+
+# Create pseudo-replicate sample IDs
+
+The DE workflows operate on pseudobulk samples. For this tutorial, we create
+four pseudo-replicates inside each `condition x timepoint` group by randomly
+partitioning cells within each stratum.
+
+```{r}
+assign_pseudoreplicates <- function(
+    sce,
+    group_cols = c("condition", "timepoint"),
+    n_reps = 4,
+    seed = 101) {
+  set.seed(seed)
+
+  meta <- as.data.frame(SummarizedExperiment::colData(sce))
+  strata <- interaction(meta[, group_cols, drop = FALSE], drop = TRUE, lex.order = TRUE)
+  rep_id <- integer(ncol(sce))
+
+  for (level_name in levels(strata)) {
+    idx <- which(strata == level_name)
+    rep_id[idx] <- sample(rep(seq_len(n_reps), length.out = length(idx)))
+  }
+
+  sce$pb_replicate <- factor(rep_id, levels = seq_len(n_reps))
+  sce$pb_sample_id <- paste(
+    "pb",
+    as.character(sce$condition),
+    paste0("t", sce$timepoint),
+    paste0("r", sce$pb_replicate),
+    sep = "_"
+  )
+
+  sce
+}
+
+sce <- assign_pseudoreplicates(sce, n_reps = 4, seed = 101)
+
+table(sce$condition, sce$timepoint, sce$pb_replicate)[, , 1]
+```
+
+# Aggregate pseudobulk samples
+
+We now sum counts within each pseudobulk sample. The output pseudobulk object
+retains the sample-level metadata, including `condition`, `timepoint`, and the
+number of cells contributing to each pseudobulk.
+
+```{r}
+pb <- aggregate_pseudobulk(
+  sce,
+  sample_cols = c("pb_sample_id", "condition", "timepoint", "pb_replicate"),
+  aggregation = "sum",
+  min_cells = 20
+)
+
+pb <- normalize_pseudobulk(pb, method = "TMM")
+
+dim(pb)
+head(as.data.frame(SummarizedExperiment::colData(pb)))
+```
+
+```{r}
+pb_pca <- prcomp(t(as.matrix(SummarizedExperiment::assay(pb, "logcounts"))), scale. = TRUE)
+pb_df <- as.data.frame(pb_pca$x[, 1:2, drop = FALSE])
+colnames(pb_df)[1:2] <- c("PC1", "PC2")
+pb_df$condition <- pb$condition
+pb_df$timepoint <- factor(pb$timepoint, levels = sort(unique(pb$timepoint)))
+
+ggplot(pb_df, aes(PC1, PC2, colour = condition, shape = timepoint)) +
+  geom_point(size = 3.2) +
+  theme_classic() +
+  labs(title = "Pseudobulk PCA", colour = "condition", shape = "timepoint")
+```
+
+# Pairwise DE: timepoint comparisons with treatment as a covariate
+
+The first analysis treats `timepoint` as the primary group while adding
+`condition` as an additive covariate. By default, we compare each timepoint
+against the reference timepoint `0`.
+
+```{r}
+pairwise_time <- run_edger_pairwise_de(
+  pb,
+  group_col = "timepoint",
+  covariates = "condition",
+  contrast_type = "reference",
+  reference_level = "0",
+  normalization = "TMM"
+)
+
+names(pairwise_time$tables)
+```
+
+```{r}
+pairwise_sig_counts <- aggregate(
+  significant ~ contrast,
+  data = pairwise_time$combined_table,
+  FUN = sum
+)
+
+ggplot(pairwise_sig_counts, aes(x = contrast, y = significant, fill = contrast)) +
+  geom_col(width = 0.72) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Significant genes in timepoint-vs-baseline contrasts",
+    x = "contrast",
+    y = "number of DE genes"
+  )
+```
+
+```{r}
+head(
+  pairwise_time$tables[["24_vs_0"]][order(pairwise_time$tables[["24_vs_0"]]$FDR), c("gene", "logFC", "FDR")],
+  10
+)
+```
+
+```{r}
+plot_pairwise_de_volcano(
+  pairwise_time,
+  contrast = "24_vs_0",
+  fdr_cutoff = 0.05,
+  lfc_cutoff = 0.5,
+  top_n_labels = 8
+)
+```
+
+```{r}
+plot_pairwise_de_ma(
+  pairwise_time,
+  contrast = "24_vs_0",
+  fdr_cutoff = 0.05
+)
+```
+
+# Pairwise DE: treatment-timepoint composite groups
+
+Sometimes we want a more explicit comparison such as `drug_A at 24h` versus
+`drug_A at 0h`. This is handled by combining treatment and timepoint into one
+composite group and then testing manual contrasts.
+
+```{r}
+pairwise_composite <- run_edger_pairwise_de(
+  pb,
+  group_col = "condition",
+  combine_group_cols = c("condition", "timepoint"),
+  contrast_type = "manual",
+  manual_pairs = data.frame(
+    group1 = c("drug_A__24", "drug_C__48", "drug_B__96"),
+    group2 = c("drug_A__0", "drug_C__0", "drug_B__0"),
+    stringsAsFactors = FALSE
+  ),
+  normalization = "TMM"
+)
+
+names(pairwise_composite$tables)
+```
+
+```{r}
+pairwise_composite_sig <- aggregate(
+  significant ~ contrast,
+  data = pairwise_composite$combined_table,
+  FUN = sum
+)
+
+ggplot(pairwise_composite_sig, aes(x = contrast, y = significant, fill = contrast)) +
+  geom_col(width = 0.72) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Significant genes in treatment-timepoint contrasts",
+    x = "contrast",
+    y = "number of DE genes"
+  )
+```
+
+```{r}
+plot_pairwise_de_volcano(
+  pairwise_composite,
+  contrast = "drug_A__24_vs_drug_A__0",
+  fdr_cutoff = 0.05,
+  lfc_cutoff = 0.5,
+  top_n_labels = 8
+)
+```
+
+# Spline-based time-series DE
+
+The second DE workflow models time as a continuous variable using a natural
+spline. Here we fit a separate spline model within each condition and ask which
+genes vary significantly over time.
+
+```{r}
+spline_de <- run_edger_spline_de(
+  pb,
+  time_col = "timepoint",
+  condition_col = "condition",
+  df = 3,
+  normalization = "TMM",
+  return_curve_for = "significant"
+)
+
+names(spline_de$by_condition)
+```
+
+```{r}
+spline_sig_counts <- aggregate(
+  significant ~ condition,
+  data = spline_de$combined_table,
+  FUN = sum
+)
+
+ggplot(spline_sig_counts, aes(x = condition, y = significant, fill = condition)) +
+  geom_col(width = 0.72) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Genes with significant temporal change within each condition",
+    x = "condition",
+    y = "number of spline DE genes"
+  )
+```
+
+```{r}
+top_by_condition <- lapply(
+  split(spline_de$combined_table, spline_de$combined_table$condition),
+  function(df) {
+    keep_cols <- intersect(c("gene", "F", "PValue", "FDR"), colnames(df))
+    head(df[order(df$FDR), keep_cols, drop = FALSE], 6)
+  }
+)
+
+top_by_condition
+```
+
+# Plot fitted spline curves together
+
+The fitted curves below overlay conditions for the top spline-associated genes.
+This makes it easy to see whether genes rise, fall, or diverge differently
+across treatments.
+
+```{r}
+plot_time_series_deg_curves(spline_de, top_n = 9)
+```
+
+# One-step wrapper
+
+If you prefer a single entry point, `run_scproka_de()` performs pseudobulk
+aggregation and then dispatches to the requested DE workflow.
+
+```{r}
+wrapped_pairwise <- run_scproka_de(
+  sce,
+  mode = "pairwise",
+  sample_cols = c("pb_sample_id", "condition", "timepoint", "pb_replicate"),
+  aggregation = "sum",
+  min_cells = 20,
+  normalization = "TMM",
+  group_col = "timepoint",
+  covariates = "condition",
+  contrast_type = "reference",
+  reference_level = "0"
+)
+
+names(wrapped_pairwise)
+```
+
+```{r}
+wrapped_spline <- run_scproka_de(
+  sce,
+  mode = "time_series",
+  sample_cols = c("pb_sample_id", "condition", "timepoint", "pb_replicate"),
+  aggregation = "sum",
+  min_cells = 20,
+  normalization = "TMM",
+  time_col = "timepoint",
+  condition_col = "condition",
+  df = 3
+)
+
+names(wrapped_spline)
+```
+
+# Summary
+
+This DE tutorial introduced three ways to work with the new module:
+
+- `aggregate_pseudobulk()` and `normalize_pseudobulk()` for manual control
+- `run_edger_pairwise_de()` for group-to-group edgeR contrasts
+- `run_edger_spline_de()` plus `plot_time_series_deg_curves()` for time-series
+  analyses
+- `run_scproka_de()` when you want a single wrapper function

@@ -1,0 +1,327 @@
+---
+title: "SCProkaR TATA Workflow"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{SCProkaR TATA Workflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 6,
+  fig.height = 5
+)
+
+if (file.exists("../DESCRIPTION")) {
+  if (requireNamespace("devtools", quietly = TRUE)) {
+    devtools::load_all("..")
+  } else {
+    library(SCProkaR)
+  }
+} else {
+  library(SCProkaR)
+}
+
+run_tata_demo <- TRUE
+```
+
+## Overview
+
+This vignette demonstrates Time Aware Trajectory Analysis (TATA), a
+PAGA-inspired trajectory abstraction that uses real experimental time labels to
+score and direct cluster-level transitions.
+
+The workflow below:
+
+- simulates a center-rooted multi-drug time course
+- visualizes the stored PCA and UMAP representations
+- builds the cell-level kNN graph and graph-based clusters
+- computes topology and time-consistency scores between clusters
+- constructs the abstract TATA graph
+- runs the one-step `run_tata()` wrapper and overlays the inferred trajectories
+
+The simulation is intentionally awkward for topology-only methods because the
+earliest cells are near the middle of the embedding rather than at a clear tip.
+
+## Load packages
+
+```{r}
+library(SingleCellExperiment)
+library(SummarizedExperiment)
+```
+
+## Simulate a multi-drug trajectory
+
+```{r eval = run_tata_demo}
+set.seed(101)
+
+sce <- simulate_tata_multidrug_sce(
+  n_cells = 2500,
+  n_features = 100,
+  n_pcs = 20,
+  seed = 101
+)
+
+sce$timepoint_factor <- factor(
+  sce$timepoint,
+  levels = sort(unique(sce$timepoint))
+)
+```
+
+Inspect the simulation design:
+
+```{r eval = run_tata_demo}
+with(as.data.frame(SummarizedExperiment::colData(sce)), table(condition, timepoint))
+```
+
+Visualize the stored embedding:
+
+```{r eval = run_tata_demo}
+PlotReduction(sce, reduction = "UMAP", colour_by = "timepoint_factor")
+PlotReduction(sce, reduction = "UMAP", colour_by = "condition")
+PlotReduction(sce, reduction = "UMAP", colour_by = "simulated_state")
+```
+
+## Build the cell-cell graph
+
+TATA starts from a low-dimensional representation. Here we use the stored PCA
+coordinates and connect each cell to its nearest neighbours.
+
+```{r eval = run_tata_demo}
+knn <- build_knn_graph(
+  x = sce,
+  dimred = "PCA",
+  k = 30
+)
+
+c(
+  n_cells = igraph::vcount(knn$graph),
+  n_edges = igraph::ecount(knn$graph),
+  k = knn$k
+)
+```
+
+## Cluster cells into coarse states
+
+The cell graph is clustered into coarse states that serve as nodes in the
+abstract TATA graph.
+
+```{r eval = run_tata_demo}
+sce$tata_cluster_step <- factor(
+  cluster_graph_states(
+    cell_graph = knn$graph,
+    method = "louvain",
+    seed = 101
+  )
+)
+
+table(sce$tata_cluster_step)
+PlotReduction(sce, reduction = "UMAP", colour_by = "tata_cluster_step")
+```
+
+## Compute topology and time scores
+
+TATA combines two ingredients for each cluster pair:
+
+- a topology score based on how strongly the two clusters are connected in the
+  cell-cell graph
+- a time-consistency score based on whether those inter-cluster edges follow
+  the observed experimental time order
+
+```{r eval = run_tata_demo}
+topology_table <- compute_topology_weights(
+  adjacency = knn$adjacency,
+  clusters = sce$tata_cluster_step
+)
+
+time_table <- compute_time_weights(
+  adjacency = knn$adjacency,
+  clusters = sce$tata_cluster_step,
+  timepoint = sce$timepoint
+)
+
+head(
+  topology_table[
+    order(-topology_table$topology_weight),
+    c("cluster_a", "cluster_b", "observed_edges", "expected_edges", "topology_weight")
+  ],
+  8
+)
+
+head(
+  time_table[
+    order(-time_table$time_consistency),
+    c("cluster_a", "cluster_b", "n_time_edges", "flow_score", "time_weight", "time_consistency")
+  ],
+  8
+)
+```
+
+```{r eval = run_tata_demo}
+edge_metric_table <- merge(
+  topology_table,
+  time_table,
+  by = c("cluster_a", "cluster_b"),
+  all.x = TRUE,
+  sort = FALSE
+)
+
+ggplot2::ggplot(
+  edge_metric_table,
+  ggplot2::aes(
+    x = topology_weight,
+    y = flow_score,
+    size = observed_edges,
+    colour = time_consistency
+  )
+) +
+  ggplot2::geom_hline(yintercept = c(-0.10, 0.10), linetype = 2, colour = "grey60") +
+  ggplot2::geom_point(alpha = 0.8) +
+  ggplot2::scale_colour_viridis_c(option = "plasma") +
+  ggplot2::theme_classic() +
+  ggplot2::labs(
+    title = "Topology and time consistency for cluster pairs",
+    x = "topology weight",
+    y = "temporal flow score",
+    colour = "time consistency",
+    size = "observed edges"
+  )
+```
+
+## Build the abstract TATA graph
+
+```{r eval = run_tata_demo}
+tata_manual <- build_tata_graph(
+  topology_table = topology_table,
+  time_table = time_table,
+  clusters = sce$tata_cluster_step,
+  embedding = SingleCellExperiment::reducedDim(sce, "PCA"),
+  timepoint = sce$timepoint,
+  alpha = 1,
+  beta = 1,
+  direction_threshold = 0.10,
+  prune_threshold = 0.001,
+  time_weight_mode = "directional_confidence"
+)
+
+head(
+  tata_manual$edge_table[
+    order(-tata_manual$edge_table$tata_weight),
+    c(
+      "cluster_a",
+      "cluster_b",
+      "topology_weight",
+      "flow_score",
+      "time_weight",
+      "time_consistency",
+      "tata_weight",
+      "direction_label",
+      "kept"
+    )
+  ],
+  10
+)
+```
+
+The cluster graph is easiest to interpret when it is overlaid onto the same
+embedding used to view the cells:
+
+```{r eval = run_tata_demo}
+plot_tata_cluster_graph(
+  list(
+    cluster_graph = tata_manual$graph,
+    sce = sce,
+    parameters = list(cluster_col = "tata_cluster_step")
+  ),
+  dimred = "UMAP",
+  layout_mode = "embedding",
+  show_cells = TRUE,
+  colour_by = "tata_cluster_step",
+  node_colour_by = "cluster",
+  main = "Manual TATA graph aligned to UMAP"
+)
+```
+
+## Run the full wrapper
+
+For most analyses it is simpler to call `run_tata()` directly and let the
+package carry out graph construction, clustering, edge scoring, and
+pseudotime.
+
+```{r eval = run_tata_demo}
+tata <- run_tata(
+  sce = sce,
+  dimred = "PCA",
+  time_col = "timepoint",
+  cluster_col = "tata_cluster",
+  k = 30,
+  cluster_method = "louvain",
+  alpha = 1,
+  beta = 1,
+  direction_threshold = 0.10,
+  prune_threshold = 0.001,
+  time_weight_mode = "directional_confidence",
+  do_pseudotime = TRUE,
+  seed = 101
+)
+
+sce_tata <- tata$sce
+sce_tata$tata_cluster <- factor(sce_tata$tata_cluster)
+```
+
+Inspect the wrapper output on the embedding:
+
+```{r eval = run_tata_demo}
+PlotReduction(sce_tata, reduction = "UMAP", colour_by = "tata_cluster")
+PlotReduction(sce_tata, reduction = "UMAP", colour_by = "tata_pseudotime_scaled")
+```
+
+```{r eval = run_tata_demo}
+plot_tata_cluster_graph(
+  tata,
+  dimred = "UMAP",
+  layout_mode = "embedding",
+  show_cells = TRUE,
+  colour_by = "timepoint",
+  node_colour_by = "cluster",
+  main = "TATA abstract graph aligned to UMAP"
+)
+```
+
+`plot_tata_trajectory_embedding()` provides a more classic trajectory overlay.
+Use `mode = "full"` to draw all inferred paths or `mode = "combined"` to show
+one long summary arrow per major branch.
+
+```{r eval = run_tata_demo}
+plot_tata_trajectory_embedding(
+  tata,
+  dimred = "UMAP",
+  colour_by = "timepoint",
+  mode = "full",
+  smooth_paths = TRUE
+)
+```
+
+```{r eval = run_tata_demo}
+plot_tata_trajectory_embedding(
+  tata,
+  dimred = "UMAP",
+  colour_by = "timepoint",
+  mode = "combined",
+  max_paths = 3,
+  smooth_paths = TRUE
+)
+```
+
+## Notes
+
+- `build_knn_graph()`, `compute_topology_weights()`, and
+  `compute_time_weights()` are available separately for manual inspection and
+  method development.
+- `plot_tata_cluster_graph()` places the abstract graph either in a graph-only
+  layout or directly on top of a chosen embedding.
+- `plot_tata_trajectory_embedding()` is useful when you want a simpler
+  trajectory-style overlay rather than the full abstract graph.
