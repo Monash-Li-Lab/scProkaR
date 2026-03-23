@@ -1,0 +1,145 @@
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+# SCProkaR
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+SCProkaR is a bacterial and microbial single-cell RNA-seq toolkit built
+around `SingleCellExperiment`. It standardizes raw inputs, calculates
+bacterial QC metrics such as rRNA fraction, integrates batches with
+lightweight backends, benchmarks corrected embeddings including
+user-supplied embeddings, and supports integrated clustering for
+downstream analysis.
+
+## Installation
+
+You can install the development version of SCProkaR like so:
+
+``` r
+remotes::install_github("jinxinz/SCProkaR")
+```
+
+## Example
+
+The core workflow is:
+
+``` r
+library(SCProkaR)
+
+set.seed(1)
+counts <- matrix(
+  rpois(6 * 12, lambda = 5),
+  nrow = 6,
+  dimnames = list(
+    c("rrsA", "rrlB", "rplC", "geneD", "geneE", "geneF"),
+    paste0("cell", seq_len(12))
+  )
+)
+
+cell_metadata <- data.frame(
+  batch = rep(c("batch1", "batch2"), each = 6),
+  cell_type = rep(c("A", "B", "C"), length.out = 12),
+  row.names = colnames(counts),
+  stringsAsFactors = FALSE
+)
+
+sce <- CreateBacObject(counts, cell_metadata = cell_metadata, batch_col = "batch")
+sce <- RunBacQC(sce)
+
+if (requireNamespace("batchelor", quietly = TRUE)) {
+  sce <- IntegrateBacData(sce, batch_col = "batch", method = "mnn", dims = 1:2)
+  integrated_reduction <- "integrated_mnn"
+} else {
+  fallback_latent <- matrix(
+    rnorm(ncol(sce) * 2),
+    ncol = 2,
+    dimnames = list(colnames(sce), c("dim1", "dim2"))
+  )
+  sce <- RegisterIntegrationEmbedding(sce, embedding = fallback_latent, method_name = "mock")
+  integrated_reduction <- "integrated_mock"
+}
+
+custom_latent <- matrix(
+  rnorm(ncol(sce) * 2),
+  ncol = 2,
+  dimnames = list(colnames(sce), c("dim1", "dim2"))
+)
+sce <- RegisterIntegrationEmbedding(sce, embedding = custom_latent, method_name = "scanorama")
+bench <- BenchmarkIntegration(sce, batch_col = "batch", label_col = "cell_type")
+#> 'as(<lgCMatrix>, "dgCMatrix")' is deprecated.
+#> Use 'as(., "dMatrix")' instead.
+#> See help("Deprecated") and help("Matrix-deprecated").
+```
+
+``` r
+
+if (requireNamespace("igraph", quietly = TRUE)) {
+  sce <- RunIntegratedClustering(sce, reduction = integrated_reduction)
+}
+```
+
+If your input is a Seurat `.rds` object, you can pass it directly to
+`CreateBacObject()` and SCProkaR will extract the assay counts,
+metadata, and stored reductions:
+
+``` r
+seu <- readRDS("sample1.rds")
+sce <- CreateBacObject(
+  seu,
+  seurat_assay = "RNA",
+  seurat_layer = "counts",
+  sample_col = "orig.ident"
+)
+```
+
+For multiple samples, create and QC each sample separately, then merge
+with `MergeBacObjects()` before integration:
+
+``` r
+seu1 <- readRDS("sample1.rds")
+seu2 <- readRDS("sample2.rds")
+
+seu1$sample_id <- "sample1"
+seu1$batch <- "sample1"
+seu2$sample_id <- "sample2"
+seu2$batch <- "sample2"
+
+sce1 <- CreateBacObject(seu1, seurat_assay = "RNA", sample_col = "sample_id", batch_col = "batch")
+sce2 <- CreateBacObject(seu2, seurat_assay = "RNA", sample_col = "sample_id", batch_col = "batch")
+
+sce1 <- RunBacQC(sce1)
+sce2 <- RunBacQC(sce2)
+
+sce1 <- FilterBacCells(sce1, min_counts = 200, min_features = 50, max_rrna_fraction = 0.2)
+sce2 <- FilterBacCells(sce2, min_counts = 200, min_features = 50, max_rrna_fraction = 0.2)
+
+sce <- MergeBacObjects(sce1, sce2, gene_mode = "intersect")
+sce <- IntegrateBacData(sce, batch_col = "batch", method = "mnn")
+sce <- RunIntegratedUMAP(sce, reduction = "integrated_mnn")
+sce <- RunIntegratedClustering(sce, reduction = "integrated_mnn", cluster_col = "integrated_clusters")
+
+PlotReduction(sce, reduction = "umap", colour_by = "batch")
+PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "batch")
+PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "integrated_clusters")
+```
+
+If the original cell barcodes overlap across samples,
+`MergeBacObjects()` will automatically make them unique by prefixing
+them with the sample or batch label when available.
+
+## Optional Backends
+
+Some workflows require optional packages:
+
+- `batchelor` for MNN integration
+- `harmony` for Harmony integration
+- `SeuratObject` only when you pass a Seurat `.rds` directly into
+  `CreateBacObject()`
+- `igraph` for integrated graph clustering
+
+The public API is intentionally centered on one object type so
+downstream methods can share assays, metadata, reduced dimensions, and
+analysis results. Custom embeddings stored in `reducedDims(sce)` can
+also be benchmarked directly.

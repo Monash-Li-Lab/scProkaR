@@ -336,8 +336,20 @@ bench <- BenchmarkIntegration(
 
 bench$ranking
 bench$plots$overall
+bench$plots$key_metrics
+bench$plots$batch_removal
+bench$plots$bio_conservation
+bench$plots$tradeoff
 bench$plots$heatmap
 ```
+
+The key comparison figures are:
+
+- `key_metrics`: per-metric score comparison across methods
+- `batch_removal`: average of the batch-removal metrics
+- `bio_conservation`: average of the biological-conservation metrics
+- `tradeoff`: batch-removal versus bio-conservation, which is often the most
+  useful summary of integration quality
 
 ## Save the processed object
 

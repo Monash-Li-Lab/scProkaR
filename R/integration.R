@@ -47,9 +47,17 @@ IntegrateBacData <- function(
     .scprokar_require("batchelor", "MNN integration")
     split_idx <- split(seq_len(ncol(sce)), batch)
     split_sce <- lapply(split_idx, function(idx) sce[, idx, drop = FALSE])
+    mnn_args <- list(...)
+    min_batch_cells <- min(vapply(split_idx, length, integer(1)))
+    if (!"k" %in% names(mnn_args)) {
+      mnn_args$k <- max(1L, min(20L, min_batch_cells - 1L))
+    }
+    if (!"BSPARAM" %in% names(mnn_args) && requireNamespace("BiocSingular", quietly = TRUE)) {
+      mnn_args$BSPARAM <- BiocSingular::ExactParam()
+    }
     corrected <- do.call(
       batchelor::fastMNN,
-      c(split_sce, list(subset.row = features, d = max(dims), ...))
+      c(split_sce, list(subset.row = features, d = max(dims)), mnn_args)
     )
     embedding <- SingleCellExperiment::reducedDim(corrected, "corrected")[, dims, drop = FALSE]
     rownames(embedding) <- colnames(corrected)
@@ -529,19 +537,66 @@ RegisterIntegrationEmbedding <- function(
 
 #' @keywords internal
 .scprokar_run_harmony <- function(pca_embedding, meta_data, batch_col, ...) {
-  args <- c(
-    list(
-      data_mat = pca_embedding,
-      meta_data = meta_data,
-      vars_use = batch_col,
-      do_pca = FALSE
-    ),
-    list(...)
-  )
+  extra <- list(...)
+  n_cells <- nrow(pca_embedding)
+  if (!"nclust" %in% names(extra)) {
+    if (n_cells <= 2L) {
+      extra$nclust <- 1L
+    } else {
+      extra$nclust <- max(2L, min(20L, n_cells - 1L))
+    }
+  }
+  if (!"verbose" %in% names(extra)) {
+    extra$verbose <- FALSE
+  }
 
   if ("RunHarmony" %in% getNamespaceExports("harmony")) {
+    args_new <- c(
+      list(
+        data_mat = pca_embedding,
+        meta_data = meta_data,
+        vars_use = batch_col
+      ),
+      extra
+    )
     out <- tryCatch(
-      do.call(harmony::RunHarmony, args),
+      suppressWarnings(do.call(harmony::RunHarmony, args_new)),
+      error = function(e) NULL
+    )
+
+    if (is.null(out)) {
+      args_legacy <- c(
+        list(
+          data_mat = pca_embedding,
+          meta_data = meta_data,
+          vars_use = batch_col,
+          do_pca = FALSE
+        ),
+        extra
+      )
+      out <- tryCatch(
+        suppressWarnings(do.call(harmony::RunHarmony, args_legacy)),
+        error = function(e) NULL
+      )
+    }
+
+    if (!is.null(out)) {
+      return(as.matrix(out))
+    }
+  }
+
+  if ("HarmonyMatrix" %in% getNamespaceExports("harmony")) {
+    args_matrix <- c(
+      list(
+        data_mat = pca_embedding,
+        meta_data = meta_data,
+        vars_use = batch_col,
+        do_pca = FALSE
+      ),
+      extra
+    )
+    out <- tryCatch(
+      suppressWarnings(do.call(harmony::HarmonyMatrix, args_matrix)),
       error = function(e) NULL
     )
     if (!is.null(out)) {
@@ -549,12 +604,10 @@ RegisterIntegrationEmbedding <- function(
     }
   }
 
-  if ("HarmonyMatrix" %in% getNamespaceExports("harmony")) {
-    out <- do.call(harmony::HarmonyMatrix, args)
-    return(as.matrix(out))
-  }
-
-  stop("Could not find a usable Harmony entry point in the harmony package.", call. = FALSE)
+  stop(
+    "Harmony integration failed for this dataset. Try reducing dimensions or using method = \"mnn\".",
+    call. = FALSE
+  )
 }
 
 #' @keywords internal

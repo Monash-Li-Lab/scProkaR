@@ -266,7 +266,35 @@ if (!is.null(cluster_col)) {
   )
 
   ggsave(
-    filename = file.path(out_dir, "15_integration_benchmark_heatmap.pdf"),
+    filename = file.path(out_dir, "15_integration_benchmark_key_metrics.pdf"),
+    plot = bench$plots$key_metrics,
+    width = 10,
+    height = 6
+  )
+
+  ggsave(
+    filename = file.path(out_dir, "16_integration_benchmark_batch_removal.pdf"),
+    plot = bench$plots$batch_removal,
+    width = 6,
+    height = 4
+  )
+
+  ggsave(
+    filename = file.path(out_dir, "17_integration_benchmark_bio_conservation.pdf"),
+    plot = bench$plots$bio_conservation,
+    width = 6,
+    height = 4
+  )
+
+  ggsave(
+    filename = file.path(out_dir, "18_integration_benchmark_tradeoff.pdf"),
+    plot = bench$plots$tradeoff,
+    width = 6,
+    height = 5
+  )
+
+  ggsave(
+    filename = file.path(out_dir, "19_integration_benchmark_heatmap.pdf"),
     plot = bench$plots$heatmap,
     width = 7,
     height = 4

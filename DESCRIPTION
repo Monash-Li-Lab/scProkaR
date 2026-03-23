@@ -7,8 +7,8 @@ Description: Provides a SingleCellExperiment-centered workflow for microbial
     single-cell RNA-seq analysis. The package standardizes bacterial input
     objects, computes quality-control metrics including rRNA fractions,
     performs batch integration with multiple backends, benchmarks integrated
-    embeddings with scIB-inspired metrics, builds PAGA-inspired trajectory
-    graphs, and supports pseudobulk and time-series differential expression.
+    embeddings with scIB-inspired metrics, and supports integrated clustering
+    for downstream analysis.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
@@ -24,20 +24,16 @@ Imports:
 Suggests: 
     batchelor,
     cluster,
-    edgeR,
     harmony,
     igraph,
     irlba,
     knitr,
-    MASS,
     RANN,
     rmarkdown,
     scater,
     scran,
     SeuratObject,
-    slingshot,
     testthat (>= 3.0.0),
-    tradeSeq,
     uwot
 Config/testthat/edition: 3
 LazyData: false

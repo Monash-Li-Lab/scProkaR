@@ -10,7 +10,8 @@ RunIntegratedClustering(
   cluster_col = "integrated_clusters",
   dims = NULL,
   k = 20,
-  algorithm = c("louvain", "walktrap"),
+  algorithm = c("louvain", "walktrap", "leiden"),
+  resolution = 0.8,
   seed = 1
 )
 }
@@ -28,6 +29,10 @@ prefers a stored \verb{integrated_*} embedding.}
 \item{k}{Number of nearest neighbours used to build the graph.}
 
 \item{algorithm}{Graph clustering algorithm: \code{"louvain"} or \code{"walktrap"}.}
+
+\item{resolution}{Cluster granularity parameter. This is analogous to
+Seurat's \code{resolution}: higher values typically produce more clusters. It is
+used when the selected graph clustering algorithm supports it.}
 
 \item{seed}{Random seed used when graph construction requires a fallback.}
 }

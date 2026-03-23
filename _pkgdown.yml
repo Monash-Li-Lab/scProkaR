@@ -6,16 +6,15 @@ reference:
   - title: Data Structures
     contents:
       - CreateBacObject
+      - MergeBacObjects
       - RunBacQC
       - FilterBacCells
   - title: Integration
     contents:
       - IntegrateBacData
+      - RunIntegratedUMAP
+      - RunIntegratedClustering
       - RegisterIntegrationEmbedding
+      - PlotReduction
+      - PlotIntegrationOverview
       - BenchmarkIntegration
-  - title: Trajectory And Differential Expression
-    contents:
-      - RunBacPAGA
-      - AggregatePseudobulk
-      - RunPseudobulkDE
-      - RunTimeSeriesDE

@@ -105,6 +105,32 @@ NULL
 }
 
 #' @keywords internal
+.scprokar_resolve_reduction_name <- function(sce, reduction) {
+  available <- SingleCellExperiment::reducedDimNames(sce)
+  if (!length(available)) {
+    stop("No reduced dimensions are available in `sce`.", call. = FALSE)
+  }
+  if (is.null(reduction) || !nzchar(reduction)) {
+    stop("`reduction` must be provided.", call. = FALSE)
+  }
+  if (reduction %in% available) {
+    return(reduction)
+  }
+
+  lower_available <- tolower(available)
+  idx <- which(lower_available == tolower(reduction))
+  if (length(idx) == 1L) {
+    return(available[[idx]])
+  }
+
+  stop(
+    "Reduction '", reduction, "' was not found. Available reductions: ",
+    paste(available, collapse = ", "),
+    call. = FALSE
+  )
+}
+
+#' @keywords internal
 .scprokar_store_step <- function(sce, step, value) {
   meta <- .scprokar_get_metadata(sce)
   meta[[step]] <- value
@@ -199,8 +225,13 @@ NULL
   x <- scale(x, center = TRUE, scale = TRUE)
   x[is.na(x)] <- 0
   rank_k <- min(ncomponents, max(1, ncol(x) - 1))
+  full_rank <- min(nrow(x), ncol(x))
+  use_irlba <- requireNamespace("irlba", quietly = TRUE) &&
+    ncol(x) > 2 &&
+    rank_k < full_rank - 1 &&
+    rank_k < floor(full_rank * 0.5)
 
-  if (requireNamespace("irlba", quietly = TRUE) && ncol(x) > 2) {
+  if (use_irlba) {
     pcs <- irlba::prcomp_irlba(x, n = rank_k, center = FALSE, scale. = FALSE)
   } else {
     pcs <- stats::prcomp(x, rank. = rank_k, center = FALSE, scale. = FALSE)
