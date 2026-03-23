@@ -11,6 +11,14 @@ knitr::opts_chunk$set(
   fig.path = "man/figures/README-",
   out.width = "100%"
 )
+
+run_readme_examples <- FALSE
+if (requireNamespace("SCProkaR", quietly = TRUE)) {
+  run_readme_examples <- TRUE
+} else if (file.exists("DESCRIPTION") && requireNamespace("devtools", quietly = TRUE)) {
+  devtools::load_all(".", quiet = TRUE)
+  run_readme_examples <- TRUE
+}
 ```
 
 # SCProkaR
@@ -36,15 +44,53 @@ remotes::install_github("jinxinz/SCProkaR")
 
 The core workflow is:
 
-```{r example}
+```{r example, eval = run_readme_examples}
 library(SCProkaR)
 
-sce <- CreateBacObject(counts)
+set.seed(1)
+counts <- matrix(
+  rpois(6 * 12, lambda = 5),
+  nrow = 6,
+  dimnames = list(
+    c("rrsA", "rrlB", "rplC", "geneD", "geneE", "geneF"),
+    paste0("cell", seq_len(12))
+  )
+)
+
+cell_metadata <- data.frame(
+  batch = rep(c("batch1", "batch2"), each = 6),
+  cell_type = rep(c("A", "B", "C"), length.out = 12),
+  row.names = colnames(counts),
+  stringsAsFactors = FALSE
+)
+
+sce <- CreateBacObject(counts, cell_metadata = cell_metadata, batch_col = "batch")
 sce <- RunBacQC(sce)
-sce <- IntegrateBacData(sce, batch_col = "batch", method = "mnn")
+
+if (requireNamespace("batchelor", quietly = TRUE)) {
+  sce <- IntegrateBacData(sce, batch_col = "batch", method = "mnn", dims = 1:2)
+  integrated_reduction <- "integrated_mnn"
+} else {
+  fallback_latent <- matrix(
+    rnorm(ncol(sce) * 2),
+    ncol = 2,
+    dimnames = list(colnames(sce), c("dim1", "dim2"))
+  )
+  sce <- RegisterIntegrationEmbedding(sce, embedding = fallback_latent, method_name = "mock")
+  integrated_reduction <- "integrated_mock"
+}
+
+custom_latent <- matrix(
+  rnorm(ncol(sce) * 2),
+  ncol = 2,
+  dimnames = list(colnames(sce), c("dim1", "dim2"))
+)
 sce <- RegisterIntegrationEmbedding(sce, embedding = custom_latent, method_name = "scanorama")
 bench <- BenchmarkIntegration(sce, batch_col = "batch", label_col = "cell_type")
-sce <- RunIntegratedClustering(sce, reduction = "integrated_mnn")
+
+if (requireNamespace("igraph", quietly = TRUE)) {
+  sce <- RunIntegratedClustering(sce, reduction = integrated_reduction)
+}
 ```
 
 If your input is a Seurat `.rds` object, you can pass it directly to
