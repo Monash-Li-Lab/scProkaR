@@ -31,12 +31,13 @@ run_de_demo <- TRUE
 
 ## Overview
 
-This vignette shows two practical `SCProkaR` workflows:
+This vignette shows three practical `SCProkaR` workflows:
 
-- a two-sample preprocessing and integration workflow starting from Seurat
+- a three-batch preprocessing and integration workflow starting from Seurat
   `.rds` objects
-- a pseudobulk differential-expression workflow on a simulated multi-condition
-  time course
+- a pseudobulk differential-expression workflow on the same example dataset
+  after integration
+- a time-aware trajectory analysis workflow on the same example dataset
 
 `SCProkaR` keeps the main analysis object as a
 `SingleCellExperiment`, while still accepting Seurat input for convenient
@@ -45,27 +46,48 @@ conversion.
 ## Load packages
 
 ```{r}
-library(SummarizedExperiment)
 library(SingleCellExperiment)
+library(Seurat)
 ```
 
 ## Load Seurat `.rds` objects
 
-Replace the file paths below with your own sample files.
+The package includes a small example object, `sce1`, which we load directly
+from `data/` in the same style as other Bioconductor workflow packages.
 
-```{r eval = run_workflow}
-seu1 <- readRDS("../inst/extdata/sample1.rds")
-seu2 <- readRDS("../inst/extdata/sample2.rds")
+```{r}
+data("sce1", package = "SCProkaR")
+
+seu <- CreateSeuratObject(counts = assay(sce, "counts"), assay = "RNA", meta.data = as.data.frame(colData(sce)))
+
+seu1 <- seu[, seu$treatments == "PMB0.5"]
+seu2 <- seu[, seu$treatments == "PMB2"]
+seu3 <- seu[, seu$treatments == "control"]
 ```
 
 For clarity, add sample origin columns if they do not already exist:
 
 ```{r eval = run_workflow}
-seu1$sample_id <- "sample1"
-seu1$batch <- "sample1"
 
-seu2$sample_id <- "sample2"
-seu2$batch <- "sample2"
+RunDimRed <- function(sce){
+  sce <- NormalizeData(sce)
+  sce <- FindVariableFeatures(sce, selection.method = "vst", nfeatures = 2000)
+  all.genes <- rownames(sce)
+  sce <- ScaleData(sce, features = all.genes)
+  sce <- RunPCA(sce, features = VariableFeatures(object = sce))
+  sce <- FindNeighbors(sce, dims = 1:10)
+  sce <- RunUMAP(sce, dims = 1:10)
+  return(sce)
+}
+
+seu1 <- RunDimRed(seu1)
+seu1$batch <- "batch1"
+
+seu2 <- RunDimRed(seu2)
+seu2$batch <- "batch2"
+
+seu3 <- RunDimRed(seu3)
+seu3$batch <- "batch3"
 ```
 
 ## Create SCProkaR objects
@@ -78,7 +100,7 @@ sce1 <- CreateBacObject(
   seu1,
   seurat_assay = "RNA",
   seurat_layer = "counts",
-  sample_col = "sample_id",
+  sample_col = "sample",
   batch_col = "batch"
 )
 
@@ -86,7 +108,15 @@ sce2 <- CreateBacObject(
   seu2,
   seurat_assay = "RNA",
   seurat_layer = "counts",
-  sample_col = "sample_id",
+  sample_col = "sample",
+  batch_col = "batch"
+)
+
+sce3 <- CreateBacObject(
+  seu3,
+  seurat_assay = "RNA",
+  seurat_layer = "counts",
+  sample_col = "sample",
   batch_col = "batch"
 )
 ```
@@ -98,6 +128,7 @@ Compute QC metrics on each sample separately:
 ```{r eval = run_workflow}
 sce1 <- RunBacQC(sce1)
 sce2 <- RunBacQC(sce2)
+sce3 <- RunBacQC(sce3)
 ```
 
 The QC results are stored in `colData(sce)`:
@@ -127,6 +158,13 @@ sce2 <- FilterBacCells(
   min_features = 50,
   max_rrna_fraction = 0.20
 )
+
+sce3 <- FilterBacCells(
+  sce3,
+  min_counts = 50,
+  min_features = 50,
+  max_rrna_fraction = 0.20
+)
 ```
 
 ## Merge samples
@@ -135,7 +173,8 @@ Use `MergeBacObjects()` instead of `cbind()` to avoid duplicate-barcode issues
 and to align genes safely across samples.
 
 ```{r eval = run_workflow}
-sce <- MergeBacObjects(sce1, sce2, gene_mode = "intersect")
+sce12 <- MergeBacObjects(sce1, sce2, gene_mode = "intersect")
+sce <- MergeBacObjects(sce12, sce3, gene_mode = "intersect")
 ```
 
 If cell barcodes overlap between samples, `MergeBacObjects()` automatically
@@ -152,7 +191,7 @@ conversion:
 
 ```{r eval = run_workflow}
 PlotReduction(sce, reduction = "umap", colour_by = "batch")
-PlotReduction(sce, reduction = "umap", colour_by = "seurat_clusters")
+PlotReduction(sce, reduction = "umap", colour_by = "clusters")
 ```
 
 Interpretation:
@@ -194,9 +233,7 @@ The output embedding is stored as `integrated_mnn` or `integrated_harmony`.
 
 ```{r eval = run_workflow}
 PlotReduction(sce, reduction = "integrated_mnn", colour_by = "batch")
-PlotReduction(sce, reduction = "integrated_mnn", colour_by = "seurat_clusters")
 PlotReduction(sce, reduction = "integrated_harmony", colour_by = "batch")
-PlotReduction(sce, reduction = "integrated_harmony", colour_by = "seurat_clusters")
 ```
 
 This gives a quick direct view of the integrated latent space before running a
@@ -215,9 +252,9 @@ This stores a new reduced dimension named `umap_integrated_mnn`.
 
 ```{r eval = run_workflow}
 PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "batch")
-PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "seurat_clusters")
+PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "clusters")
 PlotReduction(sce, reduction = "umap_integrated_harmony", colour_by = "batch")
-PlotReduction(sce, reduction = "umap_integrated_harmony", colour_by = "seurat_clusters")
+PlotReduction(sce, reduction = "umap_integrated_harmony", colour_by = "clusters")
 ```
 
 ## Cluster cells after integration
@@ -326,7 +363,7 @@ integration with the package's scIB-inspired metric panel:
 bench <- BenchmarkIntegration(
   sce,
   batch_col = "batch",
-  label_col = "seurat_clusters",
+  label_col = "clusters",
   methods = NULL
 )
 
@@ -350,46 +387,42 @@ The key comparison figures are:
 ## Pseudobulk differential expression
 
 `SCProkaR` also includes pseudobulk differential-expression utilities built
-around edgeR. For this section we switch to a simulated multi-drug time-course
- because it contains treatment labels, repeated timepoints, and known temporal
- structure out of the box.
+around edgeR. Here we continue with the same example dataset used above rather
+than switching to a separate simulated object.
 
-### Simulate a multi-condition time course
+The merged `sce` object currently contains one sample per treatment-timepoint
+combination, with:
 
-```{r eval = run_de_demo}
-set.seed(101)
+- `treatments` describing the perturbation group
+- `timepoints` describing the experimental sampling time
+- `sample` identifying each original sample
 
-sce_de <- simulate_tata_multidrug_sce(
-  n_cells = 1800,
-  n_features = 80,
-  n_pcs = 20,
-  seed = 101
-)
+For this reason, we create pseudo-replicates inside each sample so the edgeR
+workflow has replicate-like pseudobulk columns to operate on. This is useful
+for demonstrating the mechanics of the workflow, but in a real study you should
+aggregate by the true biological replicate, donor, or independent sample.
 
-sce_de$timepoint_factor <- factor(
-  sce_de$timepoint,
-  levels = sort(unique(sce_de$timepoint))
-)
-```
-
-Visualize the simulated embedding before aggregation:
+### Visualize the dataset before pseudobulk aggregation
 
 ```{r eval = run_de_demo}
-PlotReduction(sce_de, reduction = "UMAP", colour_by = "condition")
-PlotReduction(sce_de, reduction = "UMAP", colour_by = "timepoint_factor")
+sce$timepoints_factor <- factor(
+  sce$timepoints,
+  levels = sort(unique(sce$timepoints))
+)
+
+PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "treatments")
+PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "timepoints_factor")
 ```
 
 ### Create pseudo-replicate sample labels
 
-Because the simulator returns cells rather than biological replicates, we split
-cells inside each `condition x timepoint` stratum into pseudo-replicates. In a
-real experiment you would usually aggregate by the true biological sample,
-donor, or experimental unit.
+We split cells inside each original sample into pseudo-replicates. This keeps
+the DE setup aligned with the real dataset already used in the vignette.
 
 ```{r eval = run_de_demo}
 assign_pseudoreplicates <- function(
     sce,
-    group_cols = c("condition", "timepoint"),
+    group_cols = c("sample", "treatments", "timepoints"),
     n_reps = 3,
     seed = 101
 ) {
@@ -406,9 +439,7 @@ assign_pseudoreplicates <- function(
 
   sce$pb_replicate <- factor(rep_id, levels = seq_len(n_reps))
   sce$pb_sample_id <- paste(
-    "pb",
-    as.character(sce$condition),
-    paste0("t", sce$timepoint),
+    as.character(sce$sample),
     paste0("r", sce$pb_replicate),
     sep = "_"
   )
@@ -416,11 +447,11 @@ assign_pseudoreplicates <- function(
   sce
 }
 
-sce_de <- assign_pseudoreplicates(sce_de, n_reps = 3, seed = 101)
+sce_de <- assign_pseudoreplicates(sce, n_reps = 3, seed = 101)
 
 with(
   as.data.frame(SummarizedExperiment::colData(sce_de)),
-  table(condition, timepoint, pb_replicate)[, , 1]
+  table(sample, pb_replicate)
 )
 ```
 
@@ -428,41 +459,49 @@ with(
 
 `aggregate_pseudobulk()` sums counts across cells that share the same sample
 definition and keeps the sample-level metadata alongside the aggregated counts.
+Here we aggregate the pseudo-replicated object, which preserves all three
+treatments while creating replicate-like pseudobulk columns inside each
+sample-timepoint stratum.
 
 ```{r eval = run_de_demo}
 pb <- aggregate_pseudobulk(
   sce_de,
-  sample_cols = c("pb_sample_id", "condition", "timepoint", "pb_replicate"),
+  sample_cols = c("pb_sample_id", "sample", "pb_replicate", "clusters", "treatments", "timepoints"),
   aggregation = "sum",
-  min_cells = 15
+  min_cells = 20
 )
 
 pb <- normalize_pseudobulk(pb, method = "TMM")
-pb$timepoint_factor <- factor(pb$timepoint, levels = sort(unique(pb$timepoint)))
+pb$timepoints_factor <- factor(pb$timepoints, levels = sort(unique(pb$timepoints)))
 
 pb_pca <- stats::prcomp(
   t(as.matrix(SummarizedExperiment::assay(pb, "logcounts"))),
   scale. = TRUE
 )
-SingleCellExperiment::reducedDim(pb, "pb_pca") <- pb_pca$x[, 1:2, drop = FALSE]
+SingleCellExperiment::reducedDim(pb, "pb_pca") <- pb_pca$x[, 1:10, drop = FALSE]
 ```
 
 ```{r eval = run_de_demo}
-PlotReduction(pb, reduction = "pb_pca", colour_by = "condition")
-PlotReduction(pb, reduction = "pb_pca", colour_by = "timepoint_factor")
+PlotReduction(pb, reduction = "pb_pca", colour_by = "treatments", point_size = 5)
+PlotReduction(pb, reduction = "pb_pca", colour_by = "timepoints_factor", point_size = 5)
 ```
 
 ### Pairwise differential expression
 
 The first DE mode compares one group against another. A common default is to
 compare each timepoint against baseline while adjusting for treatment as a
-covariate.
+covariate. In this dataset, the `0` timepoint is only present in the control
+group, so these contrasts should be interpreted as overall progression away
+from the untreated baseline rather than a perfectly balanced treatment-adjusted
+design. With all three treatments present in the model, the treatment term
+absorbs broad perturbation-specific shifts while the timepoint contrast captures
+the shared movement away from baseline.
 
 ```{r eval = run_de_demo}
 pairwise_time <- run_edger_pairwise_de(
   pb,
-  group_col = "timepoint",
-  covariates = "condition",
+  group_col = "timepoints",
+  covariates = "treatments",
   contrast_type = "reference",
   reference_level = "0",
   normalization = "TMM"
@@ -493,8 +532,8 @@ Inspect one contrast in more detail:
 
 ```{r eval = run_de_demo}
 head(
-  pairwise_time$tables[["24_vs_0"]][
-    order(pairwise_time$tables[["24_vs_0"]]$FDR),
+  pairwise_time$tables[["1_vs_0"]][
+    order(pairwise_time$tables[["1_vs_0"]]$FDR),
     c("gene", "logFC", "FDR")
   ],
   10
@@ -502,7 +541,7 @@ head(
 
 plot_pairwise_de_volcano(
   pairwise_time,
-  contrast = "24_vs_0",
+  contrast = "1_vs_0",
   fdr_cutoff = 0.05,
   lfc_cutoff = 0.5,
   top_n_labels = 8
@@ -510,23 +549,25 @@ plot_pairwise_de_volcano(
 
 plot_pairwise_de_ma(
   pairwise_time,
-  contrast = "24_vs_0",
+  contrast = "1_vs_0",
   fdr_cutoff = 0.05
 )
 ```
 
 `SCProkaR` also supports composite treatment-timepoint groups when you want an
-explicit contrast such as `drug_A at 24h` versus `drug_A at 0h`.
+explicit within-treatment comparison such as `PMB0.5 at day 7` versus
+`PMB0.5 at day 1`, while keeping all treatment groups in the same pseudobulk
+object.
 
 ```{r eval = run_de_demo}
 pairwise_composite <- run_edger_pairwise_de(
   pb,
-  group_col = "condition",
-  combine_group_cols = c("condition", "timepoint"),
+  group_col = "treatments",
+  combine_group_cols = c("treatments", "timepoints"),
   contrast_type = "manual",
   manual_pairs = data.frame(
-    group1 = c("drug_A__24", "drug_C__48", "drug_B__96"),
-    group2 = c("drug_A__0", "drug_C__0", "drug_B__0"),
+    group1 = c("PMB0.5__7", "PMB2__7", "control__7", "PMB0.5__4"),
+    group2 = c("PMB0.5__1", "PMB2__1", "control__1", "PMB0.5__1"),
     stringsAsFactors = FALSE
   ),
   normalization = "TMM"
@@ -534,7 +575,7 @@ pairwise_composite <- run_edger_pairwise_de(
 
 plot_pairwise_de_volcano(
   pairwise_composite,
-  contrast = "drug_A__24_vs_drug_A__0",
+  contrast = "PMB0.5__7_vs_PMB0.5__1",
   fdr_cutoff = 0.05,
   lfc_cutoff = 0.5,
   top_n_labels = 8
@@ -544,13 +585,15 @@ plot_pairwise_de_volcano(
 ### Spline-based time-series differential expression
 
 The second DE mode treats time as continuous and uses a spline basis to detect
-genes that change over time within each condition.
+genes that change over time within each treatment group. Because the example
+object now contains all three treatments, the result returns a separate spline
+fit for each perturbation trajectory.
 
 ```{r eval = run_de_demo}
 spline_de <- run_edger_spline_de(
   pb,
-  time_col = "timepoint",
-  condition_col = "condition",
+  time_col = "timepoints",
+  condition_col = "treatments",
   df = 3,
   normalization = "TMM",
   return_curve_for = "significant"
@@ -561,28 +604,28 @@ names(spline_de$by_condition)
 
 ```{r eval = run_de_demo}
 spline_sig_counts <- aggregate(
-  significant ~ condition,
+  significant ~ treatments,
   data = spline_de$combined_table,
   FUN = sum
 )
 
-ggplot2::ggplot(spline_sig_counts, ggplot2::aes(x = condition, y = significant, fill = condition)) +
+ggplot2::ggplot(spline_sig_counts, ggplot2::aes(x = treatments, y = significant, fill = treatments)) +
   ggplot2::geom_col(width = 0.72) +
   ggplot2::theme_classic() +
   ggplot2::theme(legend.position = "none") +
   ggplot2::labs(
-    title = "Genes with significant temporal change within each condition",
-    x = "condition",
+    title = "Genes with significant temporal change within each treatment",
+    x = "treatment",
     y = "number of spline DE genes"
   )
 ```
 
 ```{r eval = run_de_demo}
 top_by_condition <- lapply(
-  split(spline_de$combined_table, spline_de$combined_table$condition),
+  split(spline_de$combined_table, spline_de$combined_table$treatments),
   function(df) {
     keep_cols <- intersect(c("gene", "F", "PValue", "FDR"), colnames(df))
-    utils::head(df[order(df$FDR), keep_cols, drop = FALSE], 6)
+    utils::head(df[order(df$FDR), keep_cols, drop = FALSE], 100)
   }
 )
 
@@ -592,23 +635,127 @@ top_by_condition
 Plot fitted curves for genes with strong time-dependent changes:
 
 ```{r eval = run_de_demo}
-curve_genes <- unique(unlist(lapply(top_by_condition, function(df) df$gene[seq_len(min(2, nrow(df)))])))
+curve_genes <- unique(unlist(lapply(top_by_condition, function(df) df$gene[seq_len(min(6, nrow(df)))])))
 
 plot_time_series_deg_curves(
   spline_de,
   genes = curve_genes,
-  ncol = 2
+  ncol = 4
 )
 ```
 
 For users who prefer a one-step interface, `run_scproka_de()` wraps the
 pseudobulk and edgeR steps into one function call.
 
-## Save the processed object
+## Time-aware trajectory analysis with TATA
+
+`SCProkaR` also includes Time Aware Trajectory Analysis (TATA), a
+PAGA-inspired trajectory abstraction method that uses the observed
+experimental time labels when scoring and directing cluster-level transitions.
+
+For the practical workflow here, we continue with the same integrated object
+and run TATA on the batch-corrected latent space. This gives a compact
+cluster-level trajectory graph and a pseudotime estimate that can be
+interpreted on the integrated UMAP.
+
+### Run TATA on the integrated embedding
+
+We use the MNN-integrated embedding for graph construction and the
+`timepoints` column as the real experimental time variable.
 
 ```{r eval = run_workflow}
-saveRDS(sce, file = "scprokar_integrated_sce.rds")
+tata <- run_tata(
+  sce = sce,
+  dimred = "integrated_mnn",
+  time_col = "timepoints",
+  cluster_col = "tata_cluster",
+  k = 20,
+  cluster_method = "louvain",
+  alpha = 1,
+  beta = 1,
+  direction_threshold = 0.10,
+  prune_threshold = 0.001,
+  time_weight_mode = "directional_confidence",
+  do_pseudotime = TRUE,
+  seed = 101
+)
+
+sce_tata <- tata$sce
+sce_tata$tata_cluster <- factor(sce_tata$tata_cluster)
 ```
+
+The result stores the updated `SingleCellExperiment`, the cell-cell graph, the
+abstract cluster graph, the cluster edge table, and the cell-level pseudotime.
+
+```{r eval = run_workflow}
+names(tata)
+
+head(
+  tata$cluster_edge_table[
+    order(-tata$cluster_edge_table$tata_weight),
+    c(
+      "cluster_a",
+      "cluster_b",
+      "topology_weight",
+      "flow_score",
+      "time_weight",
+      "tata_weight",
+      "direction_label",
+      "kept"
+    )
+  ],
+  10
+)
+```
+
+### Visualize TATA clusters and pseudotime
+
+```{r eval = run_workflow}
+PlotReduction(sce_tata, reduction = "umap_integrated_mnn", colour_by = "tata_cluster")
+PlotReduction(sce_tata, reduction = "umap_integrated_mnn", colour_by = "tata_pseudotime_scaled")
+```
+
+### Overlay the abstract TATA graph on the embedding
+
+`plot_tata_cluster_graph()` places the cluster-level graph directly on top of
+the embedding so the abstract transitions can be interpreted in the same
+coordinate system as the cells.
+
+```{r eval = run_workflow}
+plot_tata_cluster_graph(
+  tata,
+  dimred = "umap_integrated_mnn",
+  layout_mode = "embedding",
+  show_cells = TRUE,
+  colour_by = "timepoints",
+  node_colour_by = "cluster",
+  main = "TATA abstract graph aligned to the integrated UMAP"
+)
+```
+
+### Plot the inferred trajectories
+
+For a cleaner trajectory-style summary, `plot_tata_trajectory_embedding()`
+draws fitted paths on top of the embedding. The `combined` mode is especially
+useful in a workflow vignette because it compresses the graph into a smaller
+set of representative trajectories.
+
+```{r eval = run_workflow}
+plot_tata_trajectory_embedding(
+  tata,
+  dimred = "umap_integrated_mnn",
+  colour_by = "timepoints",
+  mode = "combined",
+  max_paths = 3,
+  smooth_paths = TRUE
+)
+```
+
+This practical example is meant to show how TATA fits into the main
+`SCProkaR` workflow on a real dataset. For the full step-by-step TATA method
+walkthrough, simulated multi-branch examples, and benchmarking against other
+trajectory tools, see the separate TATA vignette.
+
 
 ## Notes
 
@@ -627,4 +774,8 @@ saveRDS(sce, file = "scprokar_integrated_sce.rds")
 - Pseudobulk differential expression is covered in the same package workflow
   via `aggregate_pseudobulk()`, `run_edger_pairwise_de()`, and
   `run_edger_spline_de()`.
-- Time-aware trajectory analysis is documented separately in the TATA vignette.
+- TATA can be run directly on the integrated object with `run_tata()` and
+  visualized with `plot_tata_cluster_graph()` and
+  `plot_tata_trajectory_embedding()`.
+- The separate TATA vignette focuses on the step-wise method explanation,
+  simulated data, and benchmarking.

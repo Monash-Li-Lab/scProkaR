@@ -133,6 +133,150 @@
 }
 
 
+.rbind_fill_data_frames <- function(df_list) {
+  df_list <- Filter(function(x) !is.null(x), df_list)
+  if (!length(df_list)) {
+    return(data.frame())
+  }
+
+  all_cols <- unique(unlist(lapply(df_list, colnames), use.names = FALSE))
+  df_list <- lapply(df_list, function(df) {
+    missing_cols <- setdiff(all_cols, colnames(df))
+    for (nm in missing_cols) {
+      df[[nm]] <- rep(NA, nrow(df))
+    }
+    df[, all_cols, drop = FALSE]
+  })
+
+  do.call(rbind, df_list)
+}
+
+
+.predict_curves_from_spline_result <- function(one_result, genes = NULL) {
+  if (is.null(one_result$fit) || is.null(one_result$curve_design) || !length(one_result$time_grid)) {
+    return(data.frame())
+  }
+
+  coef_mat <- stats::coef(one_result$fit)
+  available_genes <- rownames(coef_mat)
+  if (is.null(genes)) {
+    genes <- available_genes
+  }
+  genes <- intersect(as.character(genes), available_genes)
+  if (!length(genes)) {
+    return(data.frame())
+  }
+
+  coef_mat <- coef_mat[genes, , drop = FALSE]
+  pred_eta <- coef_mat %*% t(one_result$curve_design)
+  pred_lcpm <- (pred_eta + log(1e6)) / log(2)
+
+  curve_df <- data.frame(
+    gene = rep(rownames(pred_lcpm), each = ncol(pred_lcpm)),
+    time = rep(one_result$time_grid, times = nrow(pred_lcpm)),
+    logCPM = as.vector(t(pred_lcpm)),
+    condition = unique(one_result$table$condition)[1],
+    stringsAsFactors = FALSE
+  )
+
+  sig_lookup <- stats::setNames(one_result$table$significant, one_result$table$gene)
+  sig_flag <- sig_lookup[curve_df$gene]
+  sig_flag[is.na(sig_flag)] <- FALSE
+  curve_df$status <- ifelse(sig_flag, "Sig", "NotSig")
+  curve_df[order(curve_df$gene, curve_df$condition, curve_df$time), , drop = FALSE]
+}
+
+
+.predict_curves_from_pseudobulk <- function(
+    pb,
+    genes,
+    time_col,
+    condition_col,
+    curve_grid_length = 200,
+    assay_name = NULL) {
+  if (!methods::is(pb, "SingleCellExperiment")) {
+    return(data.frame())
+  }
+
+  if (is.null(condition_col) || !nzchar(condition_col)) {
+    return(data.frame())
+  }
+
+  if (is.null(assay_name)) {
+    assay_name <- if ("logcounts" %in% SummarizedExperiment::assayNames(pb)) {
+      "logcounts"
+    } else {
+      "counts"
+    }
+  }
+
+  genes <- intersect(as.character(genes), rownames(pb))
+  if (!length(genes)) {
+    return(data.frame())
+  }
+
+  meta <- as.data.frame(SummarizedExperiment::colData(pb))
+  if (!all(c(time_col, condition_col) %in% colnames(meta))) {
+    return(data.frame())
+  }
+
+  time_numeric <- .coerce_time_to_numeric(meta[[time_col]])
+  condition_values <- as.character(meta[[condition_col]])
+  expr_mat <- as.matrix(SummarizedExperiment::assay(pb, assay_name)[genes, , drop = FALSE])
+
+  out <- list()
+  out_i <- 0L
+
+  for (cond in sort(unique(condition_values))) {
+    idx_cond <- which(condition_values == cond & is.finite(time_numeric))
+    if (!length(idx_cond)) {
+      next
+    }
+
+    cond_time <- time_numeric[idx_cond]
+    time_grid <- seq(min(cond_time), max(cond_time), length.out = curve_grid_length)
+
+    for (gene in genes) {
+      expr_values <- expr_mat[gene, idx_cond]
+      summary_df <- stats::aggregate(
+        x = expr_values,
+        by = list(time = cond_time),
+        FUN = mean
+      )
+      summary_df <- summary_df[order(summary_df$time), , drop = FALSE]
+
+      if (nrow(summary_df) == 0L) {
+        next
+      } else if (nrow(summary_df) == 1L) {
+        pred <- rep(summary_df$x[1], length(time_grid))
+      } else if (nrow(summary_df) == 2L) {
+        pred <- stats::approx(
+          x = summary_df$time,
+          y = summary_df$x,
+          xout = time_grid,
+          rule = 2
+        )$y
+      } else {
+        interp_fun <- stats::splinefun(x = summary_df$time, y = summary_df$x, method = "natural")
+        pred <- interp_fun(time_grid)
+      }
+
+      out_i <- out_i + 1L
+      out[[out_i]] <- data.frame(
+        gene = gene,
+        time = time_grid,
+        logCPM = pred,
+        condition = cond,
+        status = "NotSig",
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+
+  .rbind_fill_data_frames(out)
+}
+
+
 #' Run pairwise pseudobulk differential expression with edgeR
 #'
 #' Fit a quasi-likelihood negative-binomial model with edgeR and test pairwise
@@ -491,32 +635,33 @@ plot_pairwise_de_ma <- function(
     curve_genes <- tab$gene
   }
 
-  curve_df <- data.frame()
-  if (length(curve_genes) > 0L) {
-    time_grid <- seq(min(time_numeric), max(time_numeric), length.out = curve_grid_length)
-    new_basis <- as.data.frame(stats::predict(spline_basis, newx = time_grid))
-    colnames(new_basis) <- colnames(spline_df)
+  time_grid <- seq(min(time_numeric), max(time_numeric), length.out = curve_grid_length)
+  new_basis <- as.data.frame(stats::predict(spline_basis, newx = time_grid))
+  colnames(new_basis) <- colnames(spline_df)
 
-    if (!is.null(covariates) && length(covariates) > 0L) {
-      template <- meta[rep(1, curve_grid_length), covariates, drop = FALSE]
-      for (cov_name in covariates) {
-        if (is.numeric(meta[[cov_name]]) || is.integer(meta[[cov_name]])) {
-          template[[cov_name]] <- mean(meta[[cov_name]], na.rm = TRUE)
+  if (!is.null(covariates) && length(covariates) > 0L) {
+    template <- meta[rep(1, curve_grid_length), covariates, drop = FALSE]
+    for (cov_name in covariates) {
+      if (is.numeric(meta[[cov_name]]) || is.integer(meta[[cov_name]])) {
+        template[[cov_name]] <- mean(meta[[cov_name]], na.rm = TRUE)
+      } else {
+        mode_value <- .most_frequent_value(meta[[cov_name]])
+        if (is.factor(meta[[cov_name]])) {
+          template[[cov_name]] <- factor(rep(mode_value, curve_grid_length), levels = levels(meta[[cov_name]]))
         } else {
-          mode_value <- .most_frequent_value(meta[[cov_name]])
-          if (is.factor(meta[[cov_name]])) {
-            template[[cov_name]] <- factor(rep(mode_value, curve_grid_length), levels = levels(meta[[cov_name]]))
-          } else {
-            template[[cov_name]] <- rep(mode_value, curve_grid_length)
-          }
+          template[[cov_name]] <- rep(mode_value, curve_grid_length)
         }
       }
-      new_design_df <- cbind(new_basis, template)
-    } else {
-      new_design_df <- new_basis
     }
+    new_design_df <- cbind(new_basis, template)
+  } else {
+    new_design_df <- new_basis
+  }
 
-    new_design <- stats::model.matrix(design_formula, data = new_design_df)
+  new_design <- stats::model.matrix(design_formula, data = new_design_df)
+
+  curve_df <- data.frame()
+  if (length(curve_genes) > 0L) {
     coef_mat <- stats::coef(fit)
     coef_mat <- coef_mat[curve_genes, , drop = FALSE]
     pred_eta <- coef_mat %*% t(new_design)
@@ -525,11 +670,12 @@ plot_pairwise_de_ma <- function(
     curve_df <- data.frame(
       gene = rep(rownames(pred_lcpm), each = ncol(pred_lcpm)),
       time = rep(time_grid, times = nrow(pred_lcpm)),
-      logCPM = as.vector(pred_lcpm),
+      logCPM = as.vector(t(pred_lcpm)),
       condition = label,
       stringsAsFactors = FALSE
     )
     curve_df$status <- ifelse(curve_df$gene %in% tab$gene[tab$significant], "Sig", "NotSig")
+    curve_df <- curve_df[order(curve_df$gene, curve_df$condition, curve_df$time), , drop = FALSE]
   }
 
   list(
@@ -539,7 +685,8 @@ plot_pairwise_de_ma <- function(
     test = qlf,
     table = tab,
     curve_data = curve_df,
-    time_grid = if (exists("time_grid")) time_grid else numeric(0),
+    time_grid = time_grid,
+    curve_design = new_design,
     effective_df = effective_df
   )
 }
@@ -636,6 +783,7 @@ run_edger_spline_de <- function(
       by_condition = list(all = res),
       combined_table = res$table,
       curve_data = res$curve_data,
+      pseudobulk = pb[, keep, drop = FALSE],
       settings = list(
         time_col = time_col,
         condition_col = condition_col,
@@ -686,13 +834,23 @@ run_edger_spline_de <- function(
     stop("No condition had enough pseudobulk samples for spline DE.", call. = FALSE)
   }
 
-  combined_table <- do.call(rbind, lapply(res_list, `[[`, "table"))
-  curve_data <- do.call(rbind, lapply(res_list, `[[`, "curve_data"))
+  if (!is.null(condition_col) && nzchar(condition_col) && condition_col != "condition") {
+    for (i in seq_along(res_list)) {
+      res_list[[i]]$table[[condition_col]] <- res_list[[i]]$table$condition
+      if (nrow(res_list[[i]]$curve_data) > 0L) {
+        res_list[[i]]$curve_data[[condition_col]] <- res_list[[i]]$curve_data$condition
+      }
+    }
+  }
+
+  combined_table <- .rbind_fill_data_frames(lapply(res_list, `[[`, "table"))
+  curve_data <- .rbind_fill_data_frames(lapply(res_list, `[[`, "curve_data"))
 
   list(
     by_condition = res_list,
     combined_table = combined_table,
     curve_data = curve_data,
+    pseudobulk = pb[, keep, drop = FALSE],
     settings = list(
       time_col = time_col,
       condition_col = condition_col,
@@ -714,7 +872,8 @@ run_edger_spline_de <- function(
 #' Plot fitted spline expression curves from time-series DE
 #'
 #' Plot fitted spline curves for selected genes, optionally overlaid across
-#' conditions.
+#' conditions. When a requested gene was significant in one condition but not
+#' another, the non-significant condition is still drawn using a dotted line.
 #'
 #' @param spline_result Result list returned by `run_edger_spline_de()`.
 #' @param genes Optional character vector of genes to plot. If `NULL`, the top
@@ -731,11 +890,6 @@ plot_time_series_deg_curves <- function(
     top_n = 12L,
     scales = "free_y",
     ncol = NULL) {
-  if (is.null(spline_result$curve_data) || !nrow(spline_result$curve_data)) {
-    stop("`spline_result` does not contain any curve data to plot.", call. = FALSE)
-  }
-
-  curve_df <- spline_result$curve_data
   table_df <- spline_result$combined_table
 
   if (is.null(genes)) {
@@ -744,7 +898,40 @@ plot_time_series_deg_curves <- function(
     genes <- utils::head(rank_df$gene, as.integer(top_n))
   }
 
-  curve_df <- curve_df[curve_df$gene %in% genes, , drop = FALSE]
+  curve_df <- .rbind_fill_data_frames(lapply(
+    spline_result$by_condition,
+    .predict_curves_from_spline_result,
+    genes = genes
+  ))
+
+  fallback_df <- .predict_curves_from_pseudobulk(
+    pb = spline_result$pseudobulk,
+    genes = genes,
+    time_col = spline_result$settings$time_col,
+    condition_col = spline_result$settings$condition_col,
+    curve_grid_length = spline_result$settings$curve_grid_length
+  )
+
+  if (nrow(fallback_df) > 0L) {
+    existing_keys <- if (nrow(curve_df) > 0L) {
+      paste(curve_df$gene, curve_df$condition, sep = "||")
+    } else {
+      character(0)
+    }
+    fallback_keys <- paste(fallback_df$gene, fallback_df$condition, sep = "||")
+    fallback_df <- fallback_df[!fallback_keys %in% existing_keys, , drop = FALSE]
+    curve_df <- .rbind_fill_data_frames(list(curve_df, fallback_df))
+  }
+
+  if (!nrow(curve_df)) {
+    stop("No fitted spline curves are available for the requested genes.", call. = FALSE)
+  }
+
+  if (!is.null(spline_result$settings$condition_col) &&
+      spline_result$settings$condition_col %in% colnames(curve_df)) {
+    curve_df$condition <- curve_df[[spline_result$settings$condition_col]]
+  }
+
   curve_df$gene <- factor(curve_df$gene, levels = genes)
   curve_df$status <- factor(curve_df$status, levels = c("Sig", "NotSig"))
 
@@ -756,12 +943,24 @@ plot_time_series_deg_curves <- function(
 
   ggplot2::ggplot(
     curve_df,
-    ggplot2::aes(x = time, y = logCPM, colour = condition, linetype = status, group = interaction(condition, status))
+    ggplot2::aes(
+      x = time,
+      y = logCPM,
+      colour = condition,
+      linetype = status,
+      group = interaction(gene, condition)
+    )
   ) +
     ggplot2::geom_line(linewidth = 0.9) +
+    ggplot2::scale_linetype_manual(values = c(Sig = "solid", NotSig = "dotted")) +
     ggplot2::facet_wrap(~ gene, scales = scales, ncol = ncol) +
     ggplot2::theme_classic() +
-    ggplot2::labs(x = spline_result$settings$time_col, y = "fitted logCPM", colour = colour_label)
+    ggplot2::labs(
+      x = spline_result$settings$time_col,
+      y = "fitted logCPM",
+      colour = colour_label,
+      linetype = "status"
+    )
 }
 
 

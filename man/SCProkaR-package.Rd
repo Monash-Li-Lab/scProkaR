@@ -11,6 +11,14 @@ single-cell analysis in R. The package combines bacterial QC and integration
 workflows with pseudobulk differential expression utilities and Time Aware
 Trajectory Analysis (TATA) for time-informed trajectory abstraction.
 }
+\section{Example dataset}{
+
+The package includes \code{sce1}, a small \code{SingleCellExperiment} object derived
+from a three-treatment bacterial single-cell experiment. The object contains
+raw counts together with \code{sample}, \code{clusters}, \code{treatments}, and
+\code{timepoints} metadata, and is used throughout the package workflow vignette.
+}
+
 \seealso{
 Useful links:
 \itemize{
