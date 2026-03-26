@@ -57,6 +57,7 @@ from `data/` in the same style as other Bioconductor workflow packages.
 
 ```{r}
 data("sce1", package = "SCProkaR")
+sce <- sce1
 
 seu <- CreateSeuratObject(counts = assay(sce, "counts"), assay = "RNA", meta.data = as.data.frame(colData(sce)))
 

@@ -22,8 +22,9 @@ raw counts together with \code{sample}, \code{clusters}, \code{treatments}, and
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/MonashLiLab/SCProkaR}
-  \item Report bugs at \url{https://github.com/MonashLiLab/SCProkaR/issues}
+  \item \url{https://monash-li-lab.github.io/scProka/}
+  \item \url{https://github.com/Monash-Li-Lab/scProka}
+  \item Report bugs at \url{https://github.com/Monash-Li-Lab/scProka/issues}
 }
 
 }

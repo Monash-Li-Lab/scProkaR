@@ -4,6 +4,8 @@
 # SCProkaR
 
 <!-- badges: start -->
+
+[![pkgdown](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://monash-li-lab.github.io/scProka/)
 <!-- badges: end -->
 
 SCProkaR is a bacterial and microbial single-cell RNA-seq toolkit built
@@ -11,73 +13,98 @@ around `SingleCellExperiment`. It standardizes raw inputs, calculates
 bacterial QC metrics such as rRNA fraction, integrates batches with
 lightweight backends, benchmarks corrected embeddings including
 user-supplied embeddings, and supports integrated clustering for
-downstream analysis.
+downstream analysis. The package also includes pseudobulk differential
+expression utilities and Time Aware Trajectory Analysis (TATA) for
+time-informed trajectory inference.
 
 ## Installation
 
 You can install the development version of SCProkaR like so:
 
 ``` r
-remotes::install_github("MonashLiLab/SCProkaR")
+remotes::install_github("Monash-Li-Lab/scProka")
 ```
 
-## Example
+## Package website
 
-The core workflow is:
+- Core workflow vignette:
+  <https://monash-li-lab.github.io/scProka/articles/scprokar-workflow.html>
+- TATA vignette:
+  <https://monash-li-lab.github.io/scProka/articles/tata-workflow.html>
+- Function reference:
+  <https://monash-li-lab.github.io/scProka/reference/index.html>
+
+## Example data and workflow
+
+The package ships with `sce1`, a small three-treatment
+`SingleCellExperiment` example object used throughout the main workflow
+vignette.
 
 ``` r
 library(SCProkaR)
+data("sce1", package = "SCProkaR")
 
-set.seed(1)
-counts <- matrix(
-  rpois(6 * 12, lambda = 5),
-  nrow = 6,
-  dimnames = list(
-    c("rrsA", "rrlB", "rplC", "geneD", "geneE", "geneF"),
-    paste0("cell", seq_len(12))
-  )
-)
+sce1
+#> class: SingleCellExperiment 
+#> dim: 3722 5000 
+#> metadata(0):
+#> assays(1): counts
+#> rownames(3722): dnaA ABUW-RS00010 ... ABUW-RS20075 ABUW-RS20460
+#> rowData names(0):
+#> colnames(5000): P1_1_GGAGCTGAGAGGTCCGTCTA P1_1_TATTGTCATCGGAGCGCTGC ...
+#>   control4_TCGCGAAGCAGAGCTGCAAC control4_CGGATGCGAACGATTGATGA
+#> colData names(4): sample clusters treatments timepoints
+#> reducedDimNames(0):
+#> mainExpName: NULL
+#> altExpNames(0):
+table(sce1$treatments)
+#> 
+#> control  PMB0.5    PMB2 
+#>    2000    1500    1500
+table(sce1$timepoints)
+#> 
+#>    0    1    4    7 
+#>  500 1500 1500 1500
+```
 
-cell_metadata <- data.frame(
-  batch = rep(c("batch1", "batch2"), each = 6),
-  cell_type = rep(c("A", "B", "C"), length.out = 12),
-  row.names = colnames(counts),
-  stringsAsFactors = FALSE
-)
+A minimal workflow is:
 
-sce <- CreateBacObject(counts, cell_metadata = cell_metadata, batch_col = "batch")
+``` r
+sce <- sce1
+sce$batch <- factor(sce$treatments)
 sce <- RunBacQC(sce)
 
 if (requireNamespace("batchelor", quietly = TRUE)) {
-  sce <- IntegrateBacData(sce, batch_col = "batch", method = "mnn", dims = 1:2)
+  sce <- IntegrateBacData(sce, batch_col = "batch", method = "mnn", dims = 1:10)
   integrated_reduction <- "integrated_mnn"
 } else {
   fallback_latent <- matrix(
-    rnorm(ncol(sce) * 2),
-    ncol = 2,
-    dimnames = list(colnames(sce), c("dim1", "dim2"))
+    rnorm(ncol(sce) * 10),
+    ncol = 10,
+    dimnames = list(colnames(sce), paste0("dim", seq_len(10)))
   )
   sce <- RegisterIntegrationEmbedding(sce, embedding = fallback_latent, method_name = "mock")
   integrated_reduction <- "integrated_mock"
 }
 
-custom_latent <- matrix(
-  rnorm(ncol(sce) * 2),
-  ncol = 2,
-  dimnames = list(colnames(sce), c("dim1", "dim2"))
+sce <- RunIntegratedUMAP(sce, reduction = integrated_reduction)
+sce <- RunIntegratedClustering(sce, reduction = integrated_reduction, cluster_col = "integrated_clusters")
+
+tata <- run_tata(
+  sce = sce,
+  dimred = integrated_reduction,
+  time_col = "timepoints",
+  cluster_col = "tata_cluster",
+  k = 20,
+  do_pseudotime = TRUE,
+  seed = 101
 )
-sce <- RegisterIntegrationEmbedding(sce, embedding = custom_latent, method_name = "scanorama")
-bench <- BenchmarkIntegration(sce, batch_col = "batch", label_col = "cell_type")
-#> 'as(<lgCMatrix>, "dgCMatrix")' is deprecated.
-#> Use 'as(., "dMatrix")' instead.
-#> See help("Deprecated") and help("Matrix-deprecated").
-```
 
-``` r
-
-if (requireNamespace("igraph", quietly = TRUE)) {
-  sce <- RunIntegratedClustering(sce, reduction = integrated_reduction)
-}
+names(tata)
+#>  [1] "sce"                    "cell_graph"             "adjacency_matrix"      
+#>  [4] "cluster_graph"          "cluster_edge_table"     "cluster_vertex_table"  
+#>  [7] "cluster_pseudotime"     "cell_pseudotime"        "cell_pseudotime_scaled"
+#> [10] "parameters"             "topology_table"         "time_table"
 ```
 
 If your input is a Seurat `.rds` object, you can pass it directly to
@@ -138,6 +165,8 @@ Some workflows require optional packages:
 - `SeuratObject` only when you pass a Seurat `.rds` directly into
   `CreateBacObject()`
 - `igraph` for integrated graph clustering
+- `edgeR` for pseudobulk differential expression
+- `pkgdown` for building the package website
 
 The public API is intentionally centered on one object type so
 downstream methods can share assays, metadata, reduced dimensions, and

@@ -29,5 +29,6 @@ A \code{ggplot2} object.
 }
 \description{
 Plot fitted spline curves for selected genes, optionally overlaid across
-conditions.
+conditions. When a requested gene was significant in one condition but not
+another, the non-significant condition is still drawn using a dotted line.
 }
