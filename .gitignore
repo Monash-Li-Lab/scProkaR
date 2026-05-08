@@ -48,3 +48,4 @@ sample1.rds
 sample2.rds
 manuscript/
 manuscript/~$*.docx
+.RDataTmp*

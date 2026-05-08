@@ -29,6 +29,8 @@ remotes::install_github("Monash-Li-Lab/scProka")
 
 - Core workflow vignette:
   <https://monash-li-lab.github.io/scProka/articles/scprokar-workflow.html>
+- Comprehensive PDF tutorial source:
+  `vignettes/scprokar-pdf-tutorial.Rmd`
 - TATA vignette:
   <https://monash-li-lab.github.io/scProka/articles/tata-workflow.html>
 - Function reference:

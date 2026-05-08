@@ -1,0 +1,815 @@
+---
+title: "SCProkaR Comprehensive Analysis Tutorial"
+subtitle: "10x input, QC, integration benchmarking, visualization, clustering, markers, and functional analysis"
+author: "SCProkaR developers"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    fig_caption: true
+geometry: margin=0.75in
+fontsize: 10pt
+vignette: >
+  %\VignetteIndexEntry{SCProkaR Comprehensive PDF Tutorial}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5,
+  dpi = 150,
+  message = TRUE,
+  warning = TRUE
+)
+
+if (file.exists("../DESCRIPTION")) {
+  if (requireNamespace("devtools", quietly = TRUE)) {
+    devtools::load_all("..")
+  } else {
+    library(SCProkaR)
+  }
+} else {
+  library(SCProkaR)
+}
+
+run_analysis <- FALSE
+```
+
+# Purpose
+
+This tutorial is a full practical workflow for bacterial isolate comparisons
+with `SCProkaR`. It focuses on visualization because integration decisions are
+much easier to defend when the plots and benchmark metrics are reviewed
+together.
+
+The workflow has two levels:
+
+1. isolate-pair analysis: benchmark `mnn` and `harmony` within matched sample
+   pairs such as control versus treatment for the same isolate
+2. all-sample analysis: merge all ten samples, benchmark both integration
+   methods globally, visualize per isolate/sample, then use the chosen
+   integrated embedding for clustering and downstream marker analysis
+
+By default this PDF is safe to knit without local data because
+`run_analysis <- FALSE` in the setup chunk. To run it on your data, set
+`run_analysis <- TRUE` and update the sample paths below.
+
+# Package Requirements
+
+```{r libraries, eval=run_analysis}
+library(SCProkaR)
+library(SingleCellExperiment)
+library(SummarizedExperiment)
+library(ggplot2)
+```
+
+Optional packages used in selected sections:
+
+```{r optional-packages, eval=run_analysis}
+requireNamespace("batchelor", quietly = TRUE)
+requireNamespace("harmony", quietly = TRUE)
+requireNamespace("uwot", quietly = TRUE)
+requireNamespace("scran", quietly = TRUE)
+requireNamespace("patchwork", quietly = TRUE)
+requireNamespace("clusterProfiler", quietly = TRUE)
+```
+
+The unintegrated and integrated workflows do not require Seurat. Seurat input is
+supported through `CreateBacObject()` when `SeuratObject` is installed, but the
+core object used by the package is always a `SingleCellExperiment`.
+
+# Input Definition
+
+This example uses ten Cell Ranger / 10x-style directories. The recommended
+input is the filtered matrix directory for each sample.
+
+```{r sample-info, eval=run_analysis}
+sample_info <- data.frame(
+  sample_id = c(
+    "S39_C", "S39_T", "SPAO1_C", "SPAO1_T", "S25_C",
+    "S25_T", "S44_C", "S44_T", "S46_C", "S46_T"
+  ),
+  isolate = c(
+    "S39", "S39", "SPAO1", "SPAO1", "S25",
+    "S25", "S44", "S44", "S46", "S46"
+  ),
+  condition = c(
+    "C", "T", "C", "T", "C",
+    "T", "C", "T", "C", "T"
+  ),
+  path = c(
+    "A4131matrix/newFiltered/",
+    "A4007matrix/newFiltered/",
+    "A3806matrix/newFiltered/",
+    "A3805matrix/newFiltered/",
+    "A3808matrix/newFiltered/",
+    "A3807matrix/newFiltered/",
+    "A4008matrix/newFiltered/",
+    "A4009matrix/newFiltered/",
+    "A4010matrix/newFiltered/",
+    "A4011matrix/newFiltered/"
+  ),
+  stringsAsFactors = FALSE
+)
+
+sample_info
+```
+
+# Create SCProkaR Objects
+
+`CreateBacObject()` can read a 10x matrix directory directly. For 10x-derived
+objects, `Symbol` is preferred as the feature-name column when available. If
+your data uses a different column, change `feature_name_col`.
+
+This tutorial sets `run_unintegrated = TRUE` so each sample gets a first-pass
+PCA, clustering, and UMAP for QC visualization. For production analysis, the
+final clustering is still performed after integration.
+
+```{r create-objects, eval=run_analysis}
+sce_list <- setNames(
+  lapply(seq_len(nrow(sample_info)), function(i) {
+    CreateBacObject(
+      sample_info$path[i],
+      sample_id_value = sample_info$sample_id[i],
+      batch_value = sample_info$sample_id[i],
+      condition_value = sample_info$condition[i],
+      feature_name_col = "Symbol",
+      run_unintegrated = TRUE,
+      unintegrated_dims = 1:30,
+      unintegrated_cluster_col = "unintegrated_clusters",
+      unintegrated_umap_name = "umap.unintegrated",
+      unintegrated_k = 15,
+      unintegrated_resolution = 1
+    )
+  }),
+  sample_info$sample_id
+)
+
+sce_list <- lapply(names(sce_list), function(nm) {
+  sce <- sce_list[[nm]]
+  sce$isolate <- sample_info$isolate[match(nm, sample_info$sample_id)]
+  sce$condition <- sample_info$condition[match(nm, sample_info$sample_id)]
+  sce$sample <- sce$sample_id
+  sce
+})
+names(sce_list) <- sample_info$sample_id
+```
+
+# Per-Sample QC
+
+```{r run-qc, eval=run_analysis}
+sce_list <- lapply(sce_list, RunBacQC)
+
+qc_df <- do.call(
+  rbind,
+  lapply(names(sce_list), function(nm) {
+    sce <- sce_list[[nm]]
+    counts_mat <- SummarizedExperiment::assay(sce, "counts")
+    data.frame(
+      cell = colnames(sce),
+      sample_id = nm,
+      isolate = unique(as.character(sce$isolate)),
+      condition = unique(as.character(sce$condition)),
+      rrna_fraction = sce$rrna_fraction,
+      ribo_fraction = sce$ribo_fraction,
+      nCount_RNA = Matrix::colSums(counts_mat),
+      nFeature_RNA = Matrix::colSums(counts_mat > 0),
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+qc_df$sample_id <- factor(qc_df$sample_id, levels = sample_info$sample_id)
+```
+
+## QC Visualizations Before Filtering
+
+```{r qc-before-plots, eval=run_analysis, fig.width=10, fig.height=6}
+ggplot(qc_df, aes(x = sample_id, y = rrna_fraction, fill = sample_id)) +
+  geom_violin(scale = "width", trim = TRUE) +
+  geom_boxplot(width = 0.12, outlier.size = 0.2, fill = "white") +
+  theme_classic(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  labs(x = "Sample", y = "rRNA fraction", title = "rRNA fraction before filtering")
+
+ggplot(qc_df, aes(x = sample_id, y = nFeature_RNA, fill = sample_id)) +
+  geom_violin(scale = "width", trim = TRUE) +
+  geom_boxplot(width = 0.12, outlier.size = 0.2, fill = "white") +
+  theme_classic(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  labs(x = "Sample", y = "Detected features", title = "Detected features before filtering")
+```
+
+# Filter Cells
+
+Adjust these thresholds for your dataset. The example values are conservative
+starting points.
+
+```{r filter-cells, eval=run_analysis}
+sce_filtered_list <- setNames(
+  lapply(sce_list, function(sce) {
+    FilterBacCells(
+      sce,
+      min_counts = 50,
+      min_features = 50,
+      max_rrna_fraction = 0.10
+    )
+  }),
+  names(sce_list)
+)
+
+qc_df_after <- do.call(
+  rbind,
+  lapply(names(sce_filtered_list), function(nm) {
+    sce <- sce_filtered_list[[nm]]
+    counts_mat <- SummarizedExperiment::assay(sce, "counts")
+    data.frame(
+      cell = colnames(sce),
+      sample_id = nm,
+      isolate = unique(as.character(sce$isolate)),
+      condition = unique(as.character(sce$condition)),
+      rrna_fraction = sce$rrna_fraction,
+      ribo_fraction = sce$ribo_fraction,
+      nCount_RNA = Matrix::colSums(counts_mat),
+      nFeature_RNA = Matrix::colSums(counts_mat > 0),
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+qc_df$stage <- "Before"
+qc_df_after$stage <- "After"
+qc_df_all <- rbind(qc_df, qc_df_after)
+qc_df_all$sample_id <- factor(qc_df_all$sample_id, levels = sample_info$sample_id)
+qc_df_all$stage <- factor(qc_df_all$stage, levels = c("Before", "After"))
+```
+
+## QC Visualizations Before and After Filtering
+
+```{r qc-before-after-plots, eval=run_analysis, fig.width=11, fig.height=6}
+ggplot(qc_df_all, aes(x = sample_id, y = rrna_fraction, fill = stage)) +
+  geom_boxplot(outlier.size = 0.15) +
+  theme_classic(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Sample", y = "rRNA fraction", title = "rRNA fraction before and after filtering")
+
+ggplot(qc_df_all, aes(x = sample_id, y = nFeature_RNA, fill = stage)) +
+  geom_boxplot(outlier.size = 0.15) +
+  theme_classic(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Sample", y = "Detected features", title = "Detected features before and after filtering")
+```
+
+# Build Isolate-Pair Objects
+
+Each isolate pair compares matched control and treatment samples.
+
+```{r pair-objects, eval=run_analysis}
+merged_list <- list(
+  sce_1_2 = MergeBacObjects(
+    objects = sce_filtered_list[c("S39_C", "S39_T")],
+    gene_mode = "intersect"
+  ),
+  sce_3_4 = MergeBacObjects(
+    objects = sce_filtered_list[c("SPAO1_C", "SPAO1_T")],
+    gene_mode = "intersect"
+  ),
+  sce_5_6 = MergeBacObjects(
+    objects = sce_filtered_list[c("S25_C", "S25_T")],
+    gene_mode = "intersect"
+  ),
+  sce_7_8 = MergeBacObjects(
+    objects = sce_filtered_list[c("S44_C", "S44_T")],
+    gene_mode = "intersect"
+  ),
+  sce_9_10 = MergeBacObjects(
+    objects = sce_filtered_list[c("S46_C", "S46_T")],
+    gene_mode = "intersect"
+  )
+)
+
+pair_list <- merged_list
+```
+
+## Sanity Check
+
+```{r pair-sanity, eval=run_analysis}
+lapply(pair_list, function(sce) {
+  list(
+    dims = dim(sce),
+    coldata = colnames(SummarizedExperiment::colData(sce)),
+    reductions = reducedDimNames(sce),
+    sample_table = table(sce$sample_id)
+  )
+})
+```
+
+# Pair-Level Integration Benchmark
+
+This helper runs `mnn` and `harmony`, computes UMAPs, clusters both integrated
+spaces, runs `BenchmarkIntegration()`, and prepares the core plots for review.
+
+```{r pair-benchmark-function, eval=run_analysis}
+run_pair_benchmark <- function(
+    sce,
+    pair_name,
+    batch_col = "batch",
+    sample_col = "sample_id",
+    label_col = "unintegrated_clusters",
+    dims = 1:30,
+    k = 15,
+    resolution = 1
+) {
+  message("Running pair: ", pair_name)
+
+  cd <- as.data.frame(SummarizedExperiment::colData(sce))
+  if (!batch_col %in% colnames(cd)) stop("Missing batch column: ", batch_col)
+  if (!sample_col %in% colnames(cd)) stop("Missing sample column: ", sample_col)
+
+  label_col_use <- if (label_col %in% colnames(cd)) label_col else NULL
+
+  sce <- IntegrateBacData(sce, batch_col = batch_col, method = "mnn", dims = dims)
+  sce <- IntegrateBacData(sce, batch_col = batch_col, method = "harmony", dims = dims)
+  sce <- RunIntegratedUMAP(sce, reduction = "integrated_mnn")
+  sce <- RunIntegratedUMAP(sce, reduction = "integrated_harmony")
+
+  sce <- RunIntegratedClustering(
+    sce,
+    reduction = "integrated_mnn",
+    cluster_col = "integrated_clusters_mnn",
+    dims = dims,
+    k = k,
+    resolution = resolution
+  )
+  sce <- RunIntegratedClustering(
+    sce,
+    reduction = "integrated_harmony",
+    cluster_col = "integrated_clusters_harmony",
+    dims = dims,
+    k = k,
+    resolution = resolution
+  )
+
+  bench <- BenchmarkIntegration(
+    sce,
+    batch_col = batch_col,
+    label_col = label_col_use,
+    methods = c("integrated_mnn", "integrated_harmony"),
+    return_plots = TRUE
+  )
+  sce <- bench$sce
+
+  unintegrated_reduction <- if ("umap.unintegrated" %in% reducedDimNames(sce)) {
+    "umap.unintegrated"
+  } else if ("PCA" %in% reducedDimNames(sce)) {
+    "PCA"
+  } else {
+    NULL
+  }
+
+  plots <- list(
+    unintegrated_by_sample = if (!is.null(unintegrated_reduction)) {
+      PlotReduction(sce, reduction = unintegrated_reduction, colour_by = sample_col)
+    } else NULL,
+    mnn_by_sample = PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = sample_col),
+    harmony_by_sample = PlotReduction(sce, reduction = "umap_integrated_harmony", colour_by = sample_col),
+    unintegrated_by_cluster = if (!is.null(unintegrated_reduction) && !is.null(label_col_use)) {
+      PlotReduction(sce, reduction = unintegrated_reduction, colour_by = label_col_use)
+    } else NULL,
+    mnn_by_cluster = PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "integrated_clusters_mnn"),
+    harmony_by_cluster = PlotReduction(sce, reduction = "umap_integrated_harmony", colour_by = "integrated_clusters_harmony"),
+    mnn_facet = PlotReduction(
+      sce,
+      reduction = "umap_integrated_mnn",
+      colour_by = "integrated_clusters_mnn",
+      facet_by = sample_col
+    ),
+    harmony_facet = PlotReduction(
+      sce,
+      reduction = "umap_integrated_harmony",
+      colour_by = "integrated_clusters_harmony",
+      facet_by = sample_col
+    )
+  )
+
+  ranking <- bench$ranking
+  ranking$pair <- pair_name
+  scores <- bench$scores
+  scores$pair <- pair_name
+
+  list(sce = sce, benchmark = bench, ranking = ranking, scores = scores, plots = plots)
+}
+```
+
+```{r run-pair-benchmarks, eval=run_analysis}
+pair_results <- lapply(names(pair_list), function(nm) {
+  run_pair_benchmark(
+    sce = pair_list[[nm]],
+    pair_name = nm,
+    batch_col = "batch",
+    sample_col = "sample_id",
+    label_col = "unintegrated_clusters",
+    dims = 1:30,
+    k = 15,
+    resolution = 1
+  )
+})
+names(pair_results) <- names(pair_list)
+
+ranking_all <- do.call(rbind, lapply(pair_results, function(x) x$ranking))
+scores_all <- do.call(rbind, lapply(pair_results, function(x) x$scores))
+
+ranking_all
+```
+
+## Pair-Level Benchmark Figures
+
+```{r pair-benchmark-example-plots, eval=run_analysis, fig.width=10, fig.height=7}
+pair_results[["sce_1_2"]]$benchmark$plots$key_metrics
+pair_results[["sce_1_2"]]$benchmark$plots$tradeoff
+pair_results[["sce_1_2"]]$plots$unintegrated_by_sample
+pair_results[["sce_1_2"]]$plots$mnn_by_sample
+pair_results[["sce_1_2"]]$plots$harmony_by_sample
+```
+
+## Save Pair-Level Outputs
+
+```{r save-pair-outputs, eval=run_analysis}
+pair_outdir <- "integration_benchmark_by_isolate"
+dir.create(pair_outdir, showWarnings = FALSE, recursive = TRUE)
+
+write.csv(ranking_all, file.path(pair_outdir, "pair_benchmark_ranking.csv"), row.names = FALSE)
+write.csv(scores_all, file.path(pair_outdir, "pair_benchmark_scores.csv"), row.names = FALSE)
+
+for (nm in names(pair_results)) {
+  res <- pair_results[[nm]]
+
+  if (!is.null(res$plots$unintegrated_by_sample)) {
+    ggsave(file.path(pair_outdir, paste0(nm, "_unintegrated_by_sample.pdf")),
+      res$plots$unintegrated_by_sample, width = 6, height = 5
+    )
+  }
+  ggsave(file.path(pair_outdir, paste0(nm, "_mnn_by_sample.pdf")),
+    res$plots$mnn_by_sample, width = 6, height = 5
+  )
+  ggsave(file.path(pair_outdir, paste0(nm, "_harmony_by_sample.pdf")),
+    res$plots$harmony_by_sample, width = 6, height = 5
+  )
+  ggsave(file.path(pair_outdir, paste0(nm, "_benchmark_key_metrics.pdf")),
+    res$benchmark$plots$key_metrics, width = 10, height = 7
+  )
+  ggsave(file.path(pair_outdir, paste0(nm, "_benchmark_tradeoff.pdf")),
+    res$benchmark$plots$tradeoff, width = 6, height = 5
+  )
+}
+```
+
+# All-Sample Integration Benchmark
+
+Pair-level benchmarking shows method behavior within each isolate. The next
+step asks whether the same choice behaves well when all ten samples are merged.
+
+```{r merge-all-samples, eval=run_analysis}
+sce_all <- MergeBacObjects(objects = sce_filtered_list, gene_mode = "intersect")
+sce_all
+table(sce_all$sample_id)
+```
+
+```{r integrate-all-samples, eval=run_analysis}
+sce_all <- IntegrateBacData(sce_all, batch_col = "batch", method = "mnn", dims = 1:30)
+sce_all <- IntegrateBacData(sce_all, batch_col = "batch", method = "harmony", dims = 1:30)
+sce_all <- RunIntegratedUMAP(sce_all, reduction = "integrated_mnn")
+sce_all <- RunIntegratedUMAP(sce_all, reduction = "integrated_harmony")
+
+sce_all <- RunIntegratedClustering(
+  sce_all,
+  reduction = "integrated_mnn",
+  cluster_col = "integrated_clusters_mnn",
+  dims = 1:30,
+  k = 15,
+  resolution = 1
+)
+sce_all <- RunIntegratedClustering(
+  sce_all,
+  reduction = "integrated_harmony",
+  cluster_col = "integrated_clusters_harmony",
+  dims = 1:30,
+  k = 15,
+  resolution = 1
+)
+```
+
+```{r benchmark-all-samples, eval=run_analysis}
+bench_all <- BenchmarkIntegration(
+  sce_all,
+  batch_col = "batch",
+  label_col = "unintegrated_clusters",
+  methods = c("integrated_mnn", "integrated_harmony"),
+  return_plots = TRUE
+)
+
+bench_all$ranking
+```
+
+## All-Sample Benchmark Figures
+
+```{r all-benchmark-plots, eval=run_analysis, fig.width=10, fig.height=7}
+bench_all$plots$key_metrics
+bench_all$plots$batch_removal
+bench_all$plots$bio_conservation
+bench_all$plots$tradeoff
+bench_all$plots$heatmap
+```
+
+# All-Sample Visualization
+
+These plots compare the unintegrated view against MNN and Harmony after
+integration. They are saved both as combined all-cell views and as faceted
+per-sample views.
+
+```{r all-visualization-plots, eval=run_analysis, fig.width=9, fig.height=6}
+p_unint_sample <- PlotReduction(sce_all, reduction = "umap.unintegrated", colour_by = "sample_id")
+p_mnn_sample <- PlotReduction(sce_all, reduction = "umap_integrated_mnn", colour_by = "sample_id")
+p_harmony_sample <- PlotReduction(sce_all, reduction = "umap_integrated_harmony", colour_by = "sample_id")
+
+p_unint_cluster <- PlotReduction(sce_all, reduction = "umap.unintegrated", colour_by = "unintegrated_clusters")
+p_mnn_cluster <- PlotReduction(sce_all, reduction = "umap_integrated_mnn", colour_by = "integrated_clusters_mnn")
+p_harmony_cluster <- PlotReduction(sce_all, reduction = "umap_integrated_harmony", colour_by = "integrated_clusters_harmony")
+
+p_unint_sample
+p_mnn_sample
+p_harmony_sample
+p_unint_cluster
+p_mnn_cluster
+p_harmony_cluster
+```
+
+## Per-Sample Faceted Views
+
+```{r all-faceted-plots, eval=run_analysis, fig.width=13, fig.height=8}
+p_unint_facet <- PlotReduction(
+  sce_all,
+  reduction = "umap.unintegrated",
+  colour_by = "unintegrated_clusters",
+  facet_by = "sample_id"
+)
+p_mnn_facet <- PlotReduction(
+  sce_all,
+  reduction = "umap_integrated_mnn",
+  colour_by = "integrated_clusters_mnn",
+  facet_by = "sample_id"
+)
+p_harmony_facet <- PlotReduction(
+  sce_all,
+  reduction = "umap_integrated_harmony",
+  colour_by = "integrated_clusters_harmony",
+  facet_by = "sample_id"
+)
+
+p_unint_facet
+p_mnn_facet
+p_harmony_facet
+```
+
+## Save All-Sample Outputs
+
+```{r save-all-sample-outputs, eval=run_analysis}
+all_outdir <- "integration_benchmark_all_samples"
+dir.create(all_outdir, showWarnings = FALSE, recursive = TRUE)
+
+write.csv(bench_all$scores, file.path(all_outdir, "benchmark_scores_all_samples.csv"), row.names = FALSE)
+write.csv(bench_all$ranking, file.path(all_outdir, "benchmark_ranking_all_samples.csv"), row.names = FALSE)
+
+ggsave(file.path(all_outdir, "benchmark_key_metrics.pdf"), bench_all$plots$key_metrics, width = 10, height = 7)
+ggsave(file.path(all_outdir, "benchmark_tradeoff.pdf"), bench_all$plots$tradeoff, width = 6, height = 5)
+ggsave(file.path(all_outdir, "all_unintegrated_by_sample.pdf"), p_unint_sample, width = 7, height = 5)
+ggsave(file.path(all_outdir, "all_mnn_by_sample.pdf"), p_mnn_sample, width = 7, height = 5)
+ggsave(file.path(all_outdir, "all_harmony_by_sample.pdf"), p_harmony_sample, width = 7, height = 5)
+ggsave(file.path(all_outdir, "all_unintegrated_by_cluster.pdf"), p_unint_cluster, width = 7, height = 5)
+ggsave(file.path(all_outdir, "all_mnn_by_cluster.pdf"), p_mnn_cluster, width = 7, height = 5)
+ggsave(file.path(all_outdir, "all_harmony_by_cluster.pdf"), p_harmony_cluster, width = 7, height = 5)
+ggsave(file.path(all_outdir, "all_unintegrated_facet_by_sample.pdf"), p_unint_facet, width = 14, height = 8)
+ggsave(file.path(all_outdir, "all_mnn_facet_by_sample.pdf"), p_mnn_facet, width = 14, height = 8)
+ggsave(file.path(all_outdir, "all_harmony_facet_by_sample.pdf"), p_harmony_facet, width = 14, height = 8)
+```
+
+# Choose Final Integration Method
+
+Pick the method that is supported by the pair-level benchmark, all-sample
+benchmark, and visual inspection. The code below picks the top-ranked global
+method automatically.
+
+```{r choose-method, eval=run_analysis}
+chosen_method <- bench_all$ranking$method[[which.min(bench_all$ranking$rank)]]
+
+chosen_cfg <- if (chosen_method == "integrated_mnn") {
+  list(
+    reduction = "integrated_mnn",
+    umap = "umap_integrated_mnn",
+    cluster_col = "integrated_clusters_mnn",
+    short = "mnn"
+  )
+} else {
+  list(
+    reduction = "integrated_harmony",
+    umap = "umap_integrated_harmony",
+    cluster_col = "integrated_clusters_harmony",
+    short = "harmony"
+  )
+}
+
+chosen_cfg
+```
+
+```{r final-cluster-plots, eval=run_analysis, fig.width=13, fig.height=8}
+p_final_clusters <- PlotReduction(
+  sce_all,
+  reduction = chosen_cfg$umap,
+  colour_by = chosen_cfg$cluster_col
+)
+p_final_clusters_facet <- PlotReduction(
+  sce_all,
+  reduction = chosen_cfg$umap,
+  colour_by = chosen_cfg$cluster_col,
+  facet_by = "sample_id"
+)
+
+p_final_clusters
+p_final_clusters_facet
+```
+
+# Marker Genes for Integrated Clusters
+
+The marker analysis uses the chosen integrated cluster labels and `logcounts`.
+This is useful for cluster interpretation. For formal differential expression,
+use the pseudobulk workflow documented separately.
+
+```{r marker-function, eval=run_analysis}
+find_cluster_markers <- function(sce, cluster_col, top_n = 20) {
+  if (!requireNamespace("scran", quietly = TRUE)) {
+    stop("Install 'scran' for marker-gene analysis.")
+  }
+
+  clusters <- as.factor(SummarizedExperiment::colData(sce)[[cluster_col]])
+  marker_list <- scran::findMarkers(
+    sce,
+    groups = clusters,
+    assay.type = "logcounts",
+    direction = "up"
+  )
+
+  marker_tables <- lapply(names(marker_list), function(cl) {
+    df <- as.data.frame(marker_list[[cl]])
+    df$gene <- rownames(df)
+    df$cluster <- cl
+
+    rank_col <- intersect(
+      c("Top", "FDR", "summary.logFC", "mean.logFC.cohen", "mean.AUC"),
+      colnames(df)
+    )
+    if (length(rank_col) > 0) {
+      rank_col <- rank_col[[1]]
+      df <- if (rank_col %in% c("Top", "FDR")) {
+        df[order(df[[rank_col]], decreasing = FALSE), , drop = FALSE]
+      } else {
+        df[order(df[[rank_col]], decreasing = TRUE), , drop = FALSE]
+      }
+    }
+    utils::head(df, top_n)
+  })
+
+  all_cols <- unique(unlist(lapply(marker_tables, colnames), use.names = FALSE))
+  marker_tables <- lapply(marker_tables, function(df) {
+    missing_cols <- setdiff(all_cols, colnames(df))
+    for (nm in missing_cols) df[[nm]] <- NA
+    df[, all_cols, drop = FALSE]
+  })
+
+  out <- do.call(rbind, marker_tables)
+  rownames(out) <- NULL
+  out
+}
+```
+
+```{r run-markers, eval=run_analysis}
+top_markers_all <- find_cluster_markers(
+  sce_all,
+  cluster_col = chosen_cfg$cluster_col,
+  top_n = 20
+)
+
+utils::head(top_markers_all, 20)
+write.csv(
+  top_markers_all,
+  file.path(all_outdir, paste0("top_markers_", chosen_cfg$short, "_clusters.csv")),
+  row.names = FALSE
+)
+```
+
+# Functional Enrichment
+
+Functional enrichment requires a gene-to-term annotation table. For bacterial
+datasets this is usually isolate-specific or database-specific, so SCProkaR
+does not assume a built-in annotation source.
+
+Expected format:
+
+```{r term2gene-example, eval=FALSE}
+term2gene <- data.frame(
+  term = c("DNA replication", "DNA replication", "Ribosome"),
+  gene = c("dnaA", "dnaN", "rplB"),
+  stringsAsFactors = FALSE
+)
+```
+
+```{r enrichment-function, eval=run_analysis}
+run_functional_enrichment <- function(marker_df, term2gene, top_n = 100) {
+  if (!requireNamespace("clusterProfiler", quietly = TRUE)) {
+    stop("Install 'clusterProfiler' for functional enrichment.")
+  }
+
+  clusters <- unique(marker_df$cluster)
+  enrich_list <- lapply(clusters, function(cl) {
+    genes <- marker_df$gene[marker_df$cluster == cl]
+    genes <- unique(utils::head(genes, top_n))
+
+    enr <- clusterProfiler::enricher(
+      gene = genes,
+      TERM2GENE = term2gene
+    )
+    if (is.null(enr)) return(NULL)
+
+    out <- as.data.frame(enr)
+    out$cluster <- cl
+    out
+  })
+
+  enrich_list <- enrich_list[!vapply(enrich_list, is.null, logical(1))]
+  if (!length(enrich_list)) return(NULL)
+  do.call(rbind, enrich_list)
+}
+```
+
+Run the enrichment once you have a real annotation table:
+
+```{r run-enrichment, eval=FALSE}
+functional_all <- run_functional_enrichment(
+  marker_df = top_markers_all,
+  term2gene = term2gene,
+  top_n = 100
+)
+
+write.csv(
+  functional_all,
+  file.path(all_outdir, paste0("functional_enrichment_", chosen_cfg$short, ".csv")),
+  row.names = FALSE
+)
+```
+
+# Save Final Objects
+
+```{r save-final-objects, eval=run_analysis}
+saveRDS(sce_all, file = file.path(all_outdir, "sce_all_integrated.rds"))
+saveRDS(bench_all, file = file.path(all_outdir, "bench_all.rds"))
+saveRDS(pair_results, file = file.path(pair_outdir, "pair_results.rds"))
+```
+
+# Interpretation Checklist
+
+Use the plots and tables together:
+
+- QC plots: confirm filtering removes low-quality cells without removing whole
+  sample groups unexpectedly
+- unintegrated by sample: shows the pre-correction sample structure
+- MNN/Harmony by sample: should show improved batch mixing
+- MNN/Harmony by cluster: should preserve coherent biological structure
+- faceted sample plots: confirm no sample disappears from major states
+- benchmark ranking: useful summary, but do not treat the mean score as the only
+  decision criterion
+- marker genes: use for cluster interpretation
+- functional enrichment: use only with an annotation table appropriate for the
+  isolate or gene namespace
+
+# Render This Tutorial
+
+From the package root:
+
+```{r render-command, eval=FALSE}
+rmarkdown::render(
+  "vignettes/scprokar-pdf-tutorial.Rmd",
+  output_format = "pdf_document"
+)
+```
+
+If LaTeX is not available, install TinyTeX once:
+
+```{r tinytex-command, eval=FALSE}
+install.packages("tinytex")
+tinytex::install_tinytex()
+```
