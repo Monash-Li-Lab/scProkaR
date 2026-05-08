@@ -1,11 +1,50 @@
-.Rproj.user
+.Rproj.user/
 .Rhistory
 .RData
 .Ruserdata
 .Rapp.history
+.ipynb_checkpoints/
+__pycache__/
+.quarto/
 .DS_Store
-analysis/figure
-analysis/*png
-analysis/*html
-analysis/*_cache
-analysis/site_libs
+
+# Package build artefacts
+*.tar.gz
+/*.Rcheck/
+
+# Local data / model artefacts
+*.rds
+*.h5ad
+*.pt
+
+# Rendered document artefacts
+README.html
+*_cache/
+*_files/
+*_freeze/
+
+analysis/figure/
+analysis/*.png
+analysis/*.html
+analysis/*_cache/
+analysis/site_libs/
+
+vignettes/*.html
+vignettes/*_files/
+
+benchmarks/
+benchmarks/*.html
+benchmarks/*.pdf
+benchmarks/*.pptx
+benchmarks/data/
+benchmarks/results/
+benchmarks/real_data/
+benchmarks/real_results/
+
+# Local project scratch
+backups/
+legacy/
+sample1.rds
+sample2.rds
+manuscript/
+manuscript/~$*.docx

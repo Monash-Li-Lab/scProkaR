@@ -9,6 +9,7 @@ run_tata(
   dimred = "PCA",
   dims = NULL,
   time_col = "timepoint",
+  use_time = TRUE,
   cluster_col = "cluster",
   k = 15,
   cluster_method = c("louvain", "leiden", "walktrap"),
@@ -19,6 +20,11 @@ run_tata(
   time_weight_mode = c("directional_confidence", "ordered"),
   do_pseudotime = TRUE,
   root_cluster = NULL,
+  refine_clusters = TRUE,
+  refine_min_cells = NULL,
+  refine_min_split_fraction = 0.2,
+  do_branch_probs = TRUE,
+  expected_branches = NULL,
   n_pcs_if_missing = 20,
   seed = 1
 )
@@ -31,6 +37,10 @@ run_tata(
 \item{dims}{Optional subset of dimensions.}
 
 \item{time_col}{Column containing experimental time labels.}
+
+\item{use_time}{Logical indicating whether known experimental time should be
+used during graph abstraction. Set \code{FALSE} to run a topology-only TATA
+variant.}
 
 \item{cluster_col}{Name of the column where inferred cluster labels will be
 stored.}
@@ -67,6 +77,22 @@ labels.
 \item{do_pseudotime}{Logical indicating whether to compute pseudotime.}
 
 \item{root_cluster}{Optional root cluster for pseudotime.}
+
+\item{refine_clusters}{Logical indicating whether to apply a conservative
+temporal refinement step after graph clustering.}
+
+\item{refine_min_cells}{Minimum cluster size considered for temporal
+refinement.}
+
+\item{refine_min_split_fraction}{Minimum fraction of cells required in both
+temporal subclusters for a split to be accepted.}
+
+\item{do_branch_probs}{Logical indicating whether to compute terminal-branch
+probabilities and entropy/plasticity scores.}
+
+\item{expected_branches}{Optional expected number of terminal branches. If
+supplied, TATA uses it to guide terminal-state selection for downstream
+branch probabilities and branch assignment.}
 
 \item{n_pcs_if_missing}{Number of PCs to compute if \code{dimred} is missing.}
 

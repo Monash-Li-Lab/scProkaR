@@ -734,19 +734,30 @@ plot_tata_cluster_graph(
 )
 ```
 
+The same abstract graph can also be shown in its own layout, similar to a
+standalone PAGA network:
+
+```{r eval = run_workflow}
+plot_tata_cluster_graph(
+  tata,
+  layout_mode = "graph",
+  node_colour_by = "median_time",
+  main = "TATA abstract graph"
+)
+```
+
 ### Plot the inferred trajectories
 
 For a cleaner trajectory-style summary, `plot_tata_trajectory_embedding()`
-draws fitted paths on top of the embedding. The `combined` mode is especially
-useful in a workflow vignette because it compresses the graph into a smaller
-set of representative trajectories.
+draws fitted paths on top of the embedding. Use `max_paths` to restrict the
+display to the strongest root-to-terminal trajectories when a compact summary
+is preferable.
 
 ```{r eval = run_workflow}
 plot_tata_trajectory_embedding(
   tata,
   dimred = "umap_integrated_mnn",
   colour_by = "timepoints",
-  mode = "combined",
   max_paths = 3,
   smooth_paths = TRUE
 )

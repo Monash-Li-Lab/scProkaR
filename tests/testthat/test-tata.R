@@ -10,6 +10,7 @@ test_that("run_tata returns graph, pseudotime, and plotting outputs", {
     cluster_method = "louvain",
     prune_threshold = 0.001,
     time_weight_mode = "directional_confidence",
+    expected_branches = 3,
     seed = 31
   )
 
@@ -27,6 +28,9 @@ test_that("run_tata returns graph, pseudotime, and plotting outputs", {
   expect_true(inherits(tata$cluster_graph, "igraph"))
   expect_true(nrow(tata$cluster_edge_table) > 0)
   expect_true("tata_pseudotime" %in% colnames(SummarizedExperiment::colData(tata$sce)))
+  expect_true(length(tata$terminal_clusters) >= 1)
+  expect_true("tata_branch_entropy" %in% colnames(SummarizedExperiment::colData(tata$sce)))
+  expect_true("tata_branch_assignment" %in% colnames(SummarizedExperiment::colData(tata$sce)))
 
   graph_plot <- plot_tata_cluster_graph(
     tata,
@@ -36,16 +40,50 @@ test_that("run_tata returns graph, pseudotime, and plotting outputs", {
     colour_by = "timepoint",
     node_colour_by = "cluster"
   )
+  abstract_plot <- plot_tata_cluster_graph(
+    tata,
+    layout_mode = "graph",
+    node_colour_by = "median_time"
+  )
   trajectory_plot <- plot_tata_trajectory_embedding(
     tata,
     dimred = "UMAP",
     colour_by = "timepoint",
-    mode = "combined",
     max_paths = 3
   )
+  branch_prob_plot <- plot_tata_branch_probabilities(tata, dimred = "UMAP")
+  branch_sel_plot <- plot_tata_branch_selection(
+    tata,
+    branch = tata$terminal_clusters[1],
+    dimred = "UMAP"
+  )
+  branch_bar_plot <- plot_tata_terminal_probabilities(tata, n_cells = 4)
+
+  feature_modules <- SummarizedExperiment::rowData(tata$sce)$feature_module
+  trend_genes <- unique(c(
+    rownames(tata$sce)[feature_modules == "branch_A"][1:2],
+    rownames(tata$sce)[feature_modules == "branch_B"][1:2],
+    rownames(tata$sce)[feature_modules == "condition"][1:2]
+  ))
+  trend_genes <- unique(stats::na.omit(trend_genes))
+  if (length(trend_genes) == 0L) {
+    trend_genes <- rownames(tata$sce)[seq_len(min(4, nrow(tata$sce)))]
+  }
+  trend_result <- compute_tata_gene_trends(tata, genes = trend_genes)
+  trend_plot <- plot_tata_gene_trends(trend_result, ncol = 2)
+  heatmap_plot <- plot_tata_gene_trend_heatmap(trend_result, n_clusters = 2)
+  overview_plot <- plot_tata_results(tata, dimred = "UMAP")
 
   expect_s3_class(graph_plot, "ggplot")
+  expect_s3_class(abstract_plot, "ggplot")
   expect_s3_class(trajectory_plot, "ggplot")
+  expect_s3_class(branch_prob_plot, "ggplot")
+  expect_s3_class(branch_sel_plot, "ggplot")
+  expect_s3_class(branch_bar_plot, "ggplot")
+  expect_s3_class(trend_plot, "ggplot")
+  expect_s3_class(heatmap_plot, "ggplot")
+  expect_type(overview_plot, "list")
+  expect_s3_class(overview_plot$pseudotime, "ggplot")
 })
 
 test_that("TATA benchmark helpers return finite summary statistics", {
@@ -59,6 +97,7 @@ test_that("TATA benchmark helpers return finite summary statistics", {
     cluster_method = "louvain",
     prune_threshold = 0.001,
     time_weight_mode = "directional_confidence",
+    expected_branches = 3,
     seed = 32
   )
 
@@ -97,4 +136,23 @@ test_that("TATA benchmark helpers return finite summary statistics", {
   expect_true(is.data.frame(causal_mass$summary))
   expect_true(is.finite(local_metrics$local_temporal_direction_score))
   expect_true(is.finite(auc_metrics$summary$adjacent_timepoint_auc))
+})
+
+test_that("expected_branches guides TATA terminal-state selection", {
+  sce <- make_toy_multidrug_sce(n_cells = 1200, n_features = 80, seed = 33)
+
+  tata <- run_tata(
+    sce = sce,
+    dimred = "PCA",
+    time_col = "timepoint",
+    cluster_col = "tata_cluster",
+    k = 20,
+    cluster_method = "louvain",
+    prune_threshold = 0.001,
+    time_weight_mode = "directional_confidence",
+    expected_branches = 3,
+    seed = 33
+  )
+
+  expect_equal(length(tata$terminal_clusters), 3)
 })

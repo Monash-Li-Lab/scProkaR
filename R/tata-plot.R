@@ -312,10 +312,6 @@ plot_tata_cluster_graph <- function(
 #' @param dimred Reduced dimension to plot.
 #' @param colour_by Optional `colData` column used to color cells. Set to `NULL`
 #'   for a grey background.
-#' @param mode Display mode for the inferred trajectories. Choices are:
-#' - `"full"`: draw one root-to-terminal path for each terminal cluster.
-#' - `"combined"`: compress paths with a shared trunk and draw one
-#'   representative path per major branch.
 #' @param max_paths Optional maximum number of paths to plot after path
 #'   selection. `NULL` keeps all available paths.
 #' @param point_size Background point size.
@@ -333,7 +329,6 @@ plot_tata_trajectory_embedding <- function(
     tata_result,
     dimred = "UMAP",
     colour_by = "timepoint",
-    mode = c("full", "combined"),
     max_paths = NULL,
     point_size = 0.6,
     point_alpha = 0.75,
@@ -343,8 +338,6 @@ plot_tata_trajectory_embedding <- function(
     show_labels = TRUE,
     curve_colour = "black",
     label_size = 3) {
-  mode <- match.arg(mode)
-
   sce <- tata_result$sce
   if (!methods::is(sce, "SingleCellExperiment")) {
     stop("`tata_result$sce` must be a SingleCellExperiment.", call. = FALSE)
@@ -485,42 +478,6 @@ plot_tata_trajectory_embedding <- function(
 
   path_info_list <- Filter(Negate(is.null), path_info_list)
 
-  if (identical(mode, "combined") && length(path_info_list) > 1L) {
-    min_path_len <- min(vapply(path_info_list, function(x) length(x$path_clusters), integer(1)))
-    common_prefix_len <- 0L
-    for (pos in seq_len(min_path_len)) {
-      prefix_values <- unique(vapply(path_info_list, function(x) x$path_clusters[pos], character(1)))
-      if (length(prefix_values) == 1L) {
-        common_prefix_len <- pos
-      } else {
-        break
-      }
-    }
-
-    branch_key <- vapply(
-      path_info_list,
-      FUN.VALUE = character(1),
-      FUN = function(path_info) {
-        if (length(path_info$path_clusters) > common_prefix_len) {
-          path_info$path_clusters[common_prefix_len + 1L]
-        } else {
-          utils::tail(path_info$path_clusters, 1)
-        }
-      }
-    )
-
-    grouped_paths <- split(seq_along(path_info_list), branch_key)
-    keep_idx <- vapply(
-      grouped_paths,
-      FUN.VALUE = integer(1),
-      FUN = function(idx) {
-        candidate_pt <- vapply(path_info_list[idx], function(x) x$terminal_pseudotime, numeric(1))
-        idx[which.max(candidate_pt)]
-      }
-    )
-    path_info_list <- path_info_list[unname(keep_idx)]
-  }
-
   if (!is.null(max_paths) && length(path_info_list) > max_paths) {
     path_rank <- order(
       vapply(path_info_list, function(x) x$terminal_pseudotime, numeric(1)),
@@ -627,4 +584,566 @@ plot_tata_trajectory_embedding <- function(
   }
 
   p
+}
+
+
+#' Plot TATA edge causality diagnostics
+#'
+#' Visualize how topology support and temporal evidence combine for each
+#' cluster-cluster edge in the abstract TATA graph.
+#'
+#' @param tata_result Result list returned by `run_tata()`.
+#' @param label_edges Logical indicating whether to label each point by the
+#'   cluster-pair direction label.
+#' @param kept_only Logical indicating whether to plot only retained edges.
+#'
+#' @return A `ggplot2` object.
+#' @export
+plot_tata_edge_causality <- function(
+    tata_result,
+    label_edges = FALSE,
+    kept_only = FALSE) {
+  edge_df <- tata_result$cluster_edge_table
+  if (is.null(edge_df) || nrow(edge_df) == 0L) {
+    stop("`tata_result` does not contain a cluster edge table.", call. = FALSE)
+  }
+
+  if (isTRUE(kept_only)) {
+    edge_df <- edge_df[edge_df$kept, , drop = FALSE]
+  }
+
+  edge_df$edge_status <- ifelse(edge_df$kept, "kept", "pruned")
+  edge_df$direction_group <- ifelse(
+    edge_df$direction == "ambiguous",
+    "ambiguous",
+    ifelse(edge_df$signed_time_score >= 0, "forward", "backward")
+  )
+
+  p <- ggplot2::ggplot(
+    edge_df,
+    ggplot2::aes(
+      x = topology_weight,
+      y = signed_time_score,
+      colour = edge_status,
+      shape = direction_group,
+      size = tata_weight
+    )
+  ) +
+    ggplot2::geom_hline(yintercept = 0, linetype = 2, colour = "grey60") +
+    ggplot2::geom_point(alpha = 0.85) +
+    ggplot2::scale_colour_manual(values = c(kept = "#1b9e77", pruned = "#c94c4c")) +
+    ggplot2::theme_classic() +
+    ggplot2::labs(
+      title = "TATA edge causality diagnostic",
+      x = "topology weight",
+      y = "signed temporal evidence",
+      colour = "edge status",
+      shape = "direction",
+      size = "TATA weight"
+    )
+
+  if (isTRUE(label_edges)) {
+    p <- p + ggplot2::geom_text(
+      ggplot2::aes(label = direction_label),
+      size = 3,
+      nudge_y = 0.03,
+      show.legend = FALSE
+    )
+  }
+
+  p
+}
+
+
+#' Plot TATA time calibration
+#'
+#' Compare inferred TATA pseudotime against the known experimental time labels,
+#' optionally split by a branch or condition label.
+#'
+#' @param tata_result Result list returned by `run_tata()`.
+#' @param time_col `colData` column containing experimental time labels. By
+#'   default this is taken from `tata_result$parameters`.
+#' @param branch_col Optional `colData` column used to group curves, for
+#'   example a true simulated branch or treatment label.
+#' @param summary Plot style. Choices are:
+#' - `"median_iqr"`: median pseudotime with an IQR ribbon for each group.
+#' - `"boxplot"`: per-timepoint boxplots of pseudotime.
+#' @param pseudotime_col `colData` column containing the cell-level TATA
+#'   pseudotime values to plot.
+#'
+#' @return A `ggplot2` object.
+#' @export
+plot_tata_time_calibration <- function(
+    tata_result,
+    time_col = NULL,
+    branch_col = NULL,
+    summary = c("median_iqr", "boxplot"),
+    pseudotime_col = "tata_pseudotime_scaled") {
+  summary <- match.arg(summary)
+  sce <- tata_result$sce
+  meta <- as.data.frame(SummarizedExperiment::colData(sce))
+
+  if (is.null(time_col)) {
+    time_col <- tata_result$parameters$time_col
+  }
+  if (is.null(time_col) || !time_col %in% colnames(meta)) {
+    stop("A valid `time_col` is required for time calibration plotting.", call. = FALSE)
+  }
+  if (!pseudotime_col %in% colnames(meta)) {
+    stop("`pseudotime_col` is not present in `colData(sce)`.", call. = FALSE)
+  }
+
+  plot_df <- data.frame(
+    timepoint = .coerce_time_to_numeric(meta[[time_col]]),
+    pseudotime = as.numeric(meta[[pseudotime_col]]),
+    stringsAsFactors = FALSE
+  )
+  if (!is.null(branch_col) && branch_col %in% colnames(meta)) {
+    plot_df$branch <- as.character(meta[[branch_col]])
+  } else {
+    plot_df$branch <- "all"
+  }
+
+  plot_df <- plot_df[is.finite(plot_df$timepoint) & is.finite(plot_df$pseudotime), , drop = FALSE]
+
+  if (summary == "boxplot") {
+    return(
+      ggplot2::ggplot(plot_df, ggplot2::aes(x = factor(timepoint), y = pseudotime, fill = branch)) +
+        ggplot2::geom_boxplot(outlier.size = 0.2, alpha = 0.8) +
+        ggplot2::theme_classic() +
+        ggplot2::labs(
+          title = "TATA time calibration",
+          x = "experimental time",
+          y = "TATA pseudotime",
+          fill = if (!is.null(branch_col)) branch_col else NULL
+        )
+    )
+  }
+
+  summary_df <- stats::aggregate(
+    plot_df$pseudotime,
+    by = list(timepoint = plot_df$timepoint, branch = plot_df$branch),
+    FUN = function(x) {
+      c(
+        median = stats::median(x),
+        q25 = stats::quantile(x, 0.25),
+        q75 = stats::quantile(x, 0.75)
+      )
+    }
+  )
+  summary_df <- do.call(data.frame, summary_df)
+  colnames(summary_df) <- c("timepoint", "branch", "median", "q25", "q75")
+
+  ggplot2::ggplot(summary_df, ggplot2::aes(x = timepoint, y = median, colour = branch, fill = branch, group = branch)) +
+    ggplot2::geom_ribbon(ggplot2::aes(ymin = q25, ymax = q75), alpha = 0.18, linewidth = 0, colour = NA) +
+    ggplot2::geom_line(linewidth = 0.9) +
+    ggplot2::geom_point(size = 1.8) +
+    ggplot2::theme_classic() +
+    ggplot2::labs(
+      title = "TATA time calibration",
+      x = "experimental time",
+      y = "median TATA pseudotime",
+      colour = if (!is.null(branch_col)) branch_col else NULL,
+      fill = if (!is.null(branch_col)) branch_col else NULL
+    )
+}
+
+
+#' Plot truth versus inferred TATA branch assignments
+#'
+#' For simulated data, compare a ground-truth branch label with the inferred
+#' hard TATA branch assignment.
+#'
+#' @param tata_result Result list returned by `run_tata()`.
+#' @param truth_col `colData` column containing the reference branch labels.
+#' @param predicted_col `colData` column containing the inferred TATA branch
+#'   assignment.
+#' @param normalize Normalization scheme. Choices are:
+#' - `"truth"`: normalize each truth branch to sum to 1.
+#' - `"predicted"`: normalize each predicted branch to sum to 1.
+#' - `"none"`: raw counts.
+#'
+#' @return A `ggplot2` object.
+#' @export
+plot_tata_branch_confusion <- function(
+    tata_result,
+    truth_col = "simulated_branch",
+    predicted_col = "tata_branch_assignment",
+    normalize = c("truth", "predicted", "none")) {
+  normalize <- match.arg(normalize)
+  meta <- as.data.frame(SummarizedExperiment::colData(tata_result$sce))
+  if (!truth_col %in% colnames(meta) || !predicted_col %in% colnames(meta)) {
+    stop("Both `truth_col` and `predicted_col` must be present in `colData(sce)`.", call. = FALSE)
+  }
+
+  tab <- as.data.frame(table(
+    truth = as.character(meta[[truth_col]]),
+    predicted = as.character(meta[[predicted_col]])
+  ))
+  names(tab)[3] <- "value"
+
+  if (normalize == "truth") {
+    tab$value <- tab$value / ave(tab$value, tab$truth, FUN = function(x) pmax(sum(x), 1))
+  } else if (normalize == "predicted") {
+    tab$value <- tab$value / ave(tab$value, tab$predicted, FUN = function(x) pmax(sum(x), 1))
+  }
+
+  ggplot2::ggplot(tab, ggplot2::aes(x = predicted, y = truth, fill = value)) +
+    ggplot2::geom_tile(colour = "white") +
+    ggplot2::scale_fill_viridis_c(option = "C") +
+    ggplot2::theme_classic() +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)) +
+    ggplot2::labs(
+      title = "Truth-aligned TATA branch assignment matrix",
+      x = "predicted branch",
+      y = "truth branch",
+      fill = if (normalize == "none") "count" else "fraction"
+    )
+}
+
+
+#' Plot TATA branch probabilities on an embedding
+#'
+#' Plot one panel per terminal branch, colored by the corresponding TATA branch
+#' probability.
+#'
+#' @param tata_result Result list returned by `run_tata()`.
+#' @param dimred Reduced dimension to plot.
+#' @param branches Optional subset of terminal branches to display.
+#' @param point_size Point size.
+#' @param point_alpha Point alpha.
+#' @param ncol Number of facet columns.
+#'
+#' @return A `ggplot2` object.
+#' @export
+plot_tata_branch_probabilities <- function(
+    tata_result,
+    dimred = "UMAP",
+    branches = NULL,
+    point_size = 0.6,
+    point_alpha = 0.8,
+    ncol = 2) {
+  sce <- tata_result$sce
+  if (!dimred %in% SingleCellExperiment::reducedDimNames(sce)) {
+    stop("Reduced dimension `", dimred, "` is not present in `tata_result$sce`.", call. = FALSE)
+  }
+
+  branch_prob_df <- tata_result$branch_probabilities
+  if (is.null(branch_prob_df)) {
+    stop("`tata_result` does not contain branch probabilities.", call. = FALSE)
+  }
+
+  if (is.null(branches)) {
+    branches <- tata_result$terminal_clusters
+  }
+  branch_cols <- .make_tata_probability_colnames(branches)
+
+  embedding <- as.matrix(SingleCellExperiment::reducedDim(sce, dimred))
+  plot_df <- data.frame(
+    cell_id = colnames(sce),
+    Dim1 = embedding[, 1],
+    Dim2 = embedding[, 2],
+    branch_prob_df[, branch_cols, drop = FALSE],
+    check.names = FALSE,
+    stringsAsFactors = FALSE
+  )
+
+  long_df <- stats::reshape(
+    plot_df,
+    varying = branch_cols,
+    v.names = "probability",
+    timevar = "branch",
+    times = branches,
+    direction = "long"
+  )
+
+  ggplot2::ggplot(long_df, ggplot2::aes(x = Dim1, y = Dim2, colour = probability)) +
+    ggplot2::geom_point(size = point_size, alpha = point_alpha) +
+    ggplot2::facet_wrap(~ branch, ncol = ncol) +
+    ggplot2::scale_colour_viridis_c(option = "magma", limits = c(0, 1)) +
+    ggplot2::theme_classic() +
+    ggplot2::labs(
+      title = "TATA terminal-branch probabilities",
+      x = paste0(dimred, "_1"),
+      y = paste0(dimred, "_2"),
+      colour = "probability"
+    )
+}
+
+
+#' Plot selected cells from one TATA branch
+#'
+#' Highlight cells that belong to one terminal branch using either a hard or a
+#' soft branch-selection rule.
+#'
+#' @inheritParams select_tata_branch_cells
+#' @param dimred Reduced dimension to plot.
+#' @param point_size Point size.
+#' @param point_alpha Point alpha.
+#'
+#' @return A `ggplot2` object.
+#' @export
+plot_tata_branch_selection <- function(
+    tata_result,
+    branch,
+    dimred = "UMAP",
+    selection_mode = c("soft", "hard"),
+    probability_threshold = 0.25,
+    point_size = 0.6,
+    point_alpha = 0.8) {
+  selection_df <- select_tata_branch_cells(
+    tata_result = tata_result,
+    branch = branch,
+    selection_mode = selection_mode,
+    probability_threshold = probability_threshold
+  )
+  sce <- tata_result$sce
+  embedding <- as.matrix(SingleCellExperiment::reducedDim(sce, dimred))
+  plot_df <- data.frame(
+    cell_id = colnames(sce),
+    Dim1 = embedding[, 1],
+    Dim2 = embedding[, 2],
+    selection_df[match(colnames(sce), selection_df$cell_id), c("probability", "selected"), drop = FALSE],
+    stringsAsFactors = FALSE
+  )
+
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = Dim1, y = Dim2)) +
+    ggplot2::geom_point(colour = "grey85", size = point_size, alpha = point_alpha * 0.6) +
+    ggplot2::geom_point(
+      data = plot_df[plot_df$selected, , drop = FALSE],
+      mapping = ggplot2::aes(colour = probability),
+      size = point_size,
+      alpha = point_alpha
+    ) +
+    ggplot2::scale_colour_viridis_c(option = "plasma", limits = c(0, 1)) +
+    ggplot2::theme_classic() +
+    ggplot2::labs(
+      title = paste("Cells selected for branch", branch),
+      x = paste0(dimred, "_1"),
+      y = paste0(dimred, "_2"),
+      colour = "probability"
+    )
+}
+
+
+#' Plot branch probabilities for representative cells
+#'
+#' Show a barplot of terminal-branch probabilities for selected cells.
+#'
+#' @param tata_result Result list returned by `run_tata()`.
+#' @param cell_ids Optional cell ids. If `NULL`, the cells with the highest TATA
+#'   branch entropy are shown.
+#' @param n_cells Number of representative cells to display when `cell_ids` is
+#'   `NULL`.
+#'
+#' @return A `ggplot2` object.
+#' @export
+plot_tata_terminal_probabilities <- function(
+    tata_result,
+    cell_ids = NULL,
+    n_cells = 6) {
+  branch_prob_df <- tata_result$branch_probabilities
+  if (is.null(branch_prob_df)) {
+    stop("`tata_result` does not contain branch probabilities.", call. = FALSE)
+  }
+
+  if (is.null(cell_ids)) {
+    rank_idx <- order(branch_prob_df$tata_branch_entropy, decreasing = TRUE, na.last = NA)
+    cell_ids <- branch_prob_df$cell_id[utils::head(rank_idx, n_cells)]
+  }
+
+  keep_df <- branch_prob_df[match(cell_ids, branch_prob_df$cell_id), , drop = FALSE]
+  branch_cols <- grep("^tata_prob_", colnames(keep_df), value = TRUE)
+  branch_names <- sub("^tata_prob_", "", branch_cols)
+
+  plot_df <- stats::reshape(
+    keep_df[, c("cell_id", branch_cols), drop = FALSE],
+    varying = branch_cols,
+    v.names = "probability",
+    timevar = "branch",
+    times = branch_names,
+    direction = "long"
+  )
+
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = branch, y = probability, fill = branch)) +
+    ggplot2::geom_col(width = 0.72) +
+    ggplot2::facet_wrap(~ cell_id) +
+    ggplot2::theme_classic() +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)) +
+    ggplot2::labs(
+      title = "Terminal-branch probabilities for representative cells",
+      x = "branch",
+      y = "probability",
+      fill = "branch"
+    )
+}
+
+
+#' Plot fitted TATA gene trends
+#'
+#' Plot fitted branch-specific gene-expression trends over TATA pseudotime.
+#'
+#' @param trend_result Result list returned by `compute_tata_gene_trends()`.
+#' @param genes Optional subset of genes to plot.
+#' @param branches Optional subset of branches to plot.
+#' @param ncol Number of facet columns.
+#'
+#' @return A `ggplot2` object.
+#' @export
+plot_tata_gene_trends <- function(
+    trend_result,
+    genes = NULL,
+    branches = NULL,
+    ncol = 2) {
+  trend_df <- trend_result$trend_table
+  if (!is.null(genes)) {
+    trend_df <- trend_df[trend_df$gene %in% genes, , drop = FALSE]
+  }
+  if (!is.null(branches)) {
+    trend_df <- trend_df[trend_df$branch %in% branches, , drop = FALSE]
+  }
+
+  ggplot2::ggplot(
+    trend_df,
+    ggplot2::aes(x = pseudotime, y = fitted_expression, colour = branch, group = branch)
+  ) +
+    ggplot2::geom_line(linewidth = 1) +
+    ggplot2::facet_wrap(~ gene, scales = "free_y", ncol = ncol) +
+    ggplot2::theme_classic() +
+    ggplot2::labs(
+      title = "Branch-specific TATA gene trends",
+      x = "TATA pseudotime",
+      y = "fitted expression",
+      colour = "branch"
+    )
+}
+
+
+#' Plot a heatmap of TATA gene trends
+#'
+#' Plot a heatmap of branch-specific fitted gene-expression trends over TATA
+#' pseudotime.
+#'
+#' @param trend_result Result list returned by `compute_tata_gene_trends()`.
+#' @param branches Optional subset of branches.
+#' @param scale_rows Logical indicating whether to z-score each gene-branch
+#'   trend before plotting.
+#' @param n_clusters Optional number of k-means clusters used to order genes by
+#'   trend shape.
+#' @param seed Random seed used for trend clustering.
+#'
+#' @return A `ggplot2` object.
+#' @export
+plot_tata_gene_trend_heatmap <- function(
+    trend_result,
+    branches = NULL,
+    scale_rows = TRUE,
+    n_clusters = NULL,
+    seed = 1) {
+  trend_df <- trend_result$trend_table
+  if (!is.null(branches)) {
+    trend_df <- trend_df[trend_df$branch %in% branches, , drop = FALSE]
+  }
+
+  trend_df$gene_branch <- paste(trend_df$gene, trend_df$branch, sep = " | ")
+
+  if (isTRUE(scale_rows)) {
+    split_idx <- split(seq_len(nrow(trend_df)), trend_df$gene_branch)
+    for (idx in split_idx) {
+      value <- trend_df$fitted_expression[idx]
+      value_sd <- stats::sd(value, na.rm = TRUE)
+      if (is.finite(value_sd) && value_sd > 0) {
+        trend_df$fitted_expression[idx] <- as.numeric(scale(value))
+      } else {
+        trend_df$fitted_expression[idx] <- 0
+      }
+    }
+    trend_df$fitted_expression[is.na(trend_df$fitted_expression)] <- 0
+  }
+
+  if (!is.null(n_clusters)) {
+    cluster_df <- cluster_tata_gene_trends(
+      trend_result = list(trend_table = trend_df),
+      n_clusters = n_clusters,
+      seed = seed
+    )
+    trend_df <- merge(trend_df, cluster_df, by = "gene", all.x = TRUE, sort = FALSE)
+    trend_df <- trend_df[order(trend_df$trend_cluster, trend_df$gene, trend_df$branch, trend_df$pseudotime), , drop = FALSE]
+  }
+
+  gene_levels <- unique(trend_df$gene_branch)
+  trend_df$gene_branch <- factor(trend_df$gene_branch, levels = rev(gene_levels))
+
+  ggplot2::ggplot(
+    trend_df,
+    ggplot2::aes(x = pseudotime, y = gene_branch, fill = fitted_expression)
+  ) +
+    ggplot2::geom_tile() +
+    ggplot2::scale_fill_gradient2(low = "#2166ac", mid = "white", high = "#b2182b") +
+    ggplot2::theme_classic() +
+    ggplot2::labs(
+      title = "Heatmap of branch-specific TATA gene trends",
+      x = "TATA pseudotime",
+      y = "gene | branch",
+      fill = if (isTRUE(scale_rows)) "z-score" else "expression"
+    )
+}
+
+
+#' Plot an overview of TATA results
+#'
+#' Create a compact set of standard TATA result plots analogous to a trajectory
+#' overview dashboard.
+#'
+#' @param tata_result Result list returned by `run_tata()`.
+#' @param dimred Reduced dimension to use for the embedding plots.
+#' @param n_probability_cells Number of representative cells to show in the
+#'   terminal-probability barplot.
+#'
+#' @return A named list of `ggplot2` objects.
+#' @export
+plot_tata_results <- function(
+    tata_result,
+    dimred = "UMAP",
+    n_probability_cells = 6) {
+  sce <- tata_result$sce
+  embedding <- as.matrix(SingleCellExperiment::reducedDim(sce, dimred))
+  plot_df <- data.frame(
+    Dim1 = embedding[, 1],
+    Dim2 = embedding[, 2],
+    pseudotime = SummarizedExperiment::colData(sce)$tata_pseudotime_scaled,
+    entropy = SummarizedExperiment::colData(sce)$tata_branch_entropy,
+    stringsAsFactors = FALSE
+  )
+
+  pseudotime_plot <- ggplot2::ggplot(plot_df, ggplot2::aes(x = Dim1, y = Dim2, colour = pseudotime)) +
+    ggplot2::geom_point(size = 0.6, alpha = 0.8) +
+    ggplot2::scale_colour_viridis_c(option = "plasma") +
+    ggplot2::theme_classic() +
+    ggplot2::labs(
+      title = "TATA pseudotime",
+      x = paste0(dimred, "_1"),
+      y = paste0(dimred, "_2"),
+      colour = "pseudotime"
+    )
+
+  entropy_plot <- ggplot2::ggplot(plot_df, ggplot2::aes(x = Dim1, y = Dim2, colour = entropy)) +
+    ggplot2::geom_point(size = 0.6, alpha = 0.8) +
+    ggplot2::scale_colour_viridis_c(option = "cividis") +
+    ggplot2::theme_classic() +
+    ggplot2::labs(
+      title = "TATA branch entropy",
+      x = paste0(dimred, "_1"),
+      y = paste0(dimred, "_2"),
+      colour = "entropy"
+    )
+
+  list(
+    pseudotime = pseudotime_plot,
+    entropy = entropy_plot,
+    time_calibration = plot_tata_time_calibration(tata_result),
+    edge_causality = plot_tata_edge_causality(tata_result),
+    branch_probabilities = plot_tata_branch_probabilities(tata_result, dimred = dimred),
+    representative_cells = plot_tata_terminal_probabilities(tata_result, n_cells = n_probability_cells)
+  )
 }

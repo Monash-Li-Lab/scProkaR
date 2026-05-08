@@ -177,3 +177,208 @@
   scaled[finite_idx] <- (x[finite_idx] - x_range[1]) / diff(x_range)
   scaled
 }
+
+
+.typical_time_step <- function(timepoint, fallback = 1) {
+  time_numeric <- sort(unique(.coerce_time_to_numeric(timepoint)))
+  time_numeric <- time_numeric[is.finite(time_numeric)]
+  diffs <- diff(time_numeric)
+  diffs <- diffs[diffs > 0]
+
+  if (length(diffs) == 0L) {
+    return(as.numeric(fallback))
+  }
+
+  stats::median(diffs)
+}
+
+
+.time_distribution_overlap <- function(time_a, time_b) {
+  time_a <- .coerce_time_to_numeric(time_a)
+  time_b <- .coerce_time_to_numeric(time_b)
+  time_a <- time_a[is.finite(time_a)]
+  time_b <- time_b[is.finite(time_b)]
+
+  if (length(time_a) == 0L || length(time_b) == 0L) {
+    return(1)
+  }
+
+  support <- sort(unique(c(time_a, time_b)))
+  prop_a <- table(factor(time_a, levels = support)) / length(time_a)
+  prop_b <- table(factor(time_b, levels = support)) / length(time_b)
+  sum(pmin(as.numeric(prop_a), as.numeric(prop_b)))
+}
+
+
+.refine_clusters_temporally <- function(
+    clusters,
+    timepoint,
+    embedding = NULL,
+    min_cluster_size = 60L,
+    min_split_fraction = 0.20,
+    min_center_gap = 1.1,
+    min_between_ratio = 0.30,
+    min_embedding_gap = 0.55,
+    seed = 1L) {
+  time_numeric <- .coerce_time_to_numeric(timepoint)
+  if (!all(is.finite(time_numeric))) {
+    return(factor(clusters))
+  }
+
+  typical_step <- .typical_time_step(time_numeric)
+  clusters <- as.character(clusters)
+  refined <- clusters
+
+  for (cluster_name in unique(clusters)) {
+    idx <- which(clusters == cluster_name)
+    n_cluster <- length(idx)
+
+    if (n_cluster < max(6L, as.integer(min_cluster_size))) {
+      next
+    }
+
+    cluster_time <- time_numeric[idx]
+    if (stats::IQR(cluster_time) < typical_step) {
+      next
+    }
+
+    set.seed(seed + match(cluster_name, unique(clusters)))
+    split_fit <- tryCatch(
+      stats::kmeans(cluster_time, centers = 2L, nstart = 20L),
+      error = function(e) NULL
+    )
+
+    if (is.null(split_fit)) {
+      next
+    }
+
+    split_sizes <- tabulate(split_fit$cluster, nbins = 2L)
+    if (min(split_sizes) < min_split_fraction * n_cluster) {
+      next
+    }
+
+    ordered_centers <- order(as.numeric(split_fit$centers))
+    center_gap <- diff(sort(as.numeric(split_fit$centers)))
+    if (length(center_gap) == 0L || center_gap < min_center_gap * typical_step) {
+      next
+    }
+
+    between_ratio <- split_fit$betweenss / max(split_fit$totss, 1e-8)
+    if (!is.finite(between_ratio) || between_ratio < min_between_ratio) {
+      next
+    }
+
+    if (!is.null(embedding)) {
+      emb_cluster <- embedding[idx, , drop = FALSE]
+      emb_cluster <- emb_cluster[, seq_len(min(5L, ncol(emb_cluster))), drop = FALSE]
+      if (ncol(emb_cluster) > 0L) {
+        emb_cluster <- scale(emb_cluster)
+        split_groups <- match(split_fit$cluster, ordered_centers)
+        centroid_1 <- colMeans(emb_cluster[split_groups == 1L, , drop = FALSE], na.rm = TRUE)
+        centroid_2 <- colMeans(emb_cluster[split_groups == 2L, , drop = FALSE], na.rm = TRUE)
+        embedding_gap <- sqrt(sum((centroid_1 - centroid_2) ^ 2))
+        if (!is.finite(embedding_gap) || embedding_gap < min_embedding_gap) {
+          next
+        }
+      }
+    }
+
+    ordered_labels <- match(split_fit$cluster, ordered_centers)
+    refined[idx] <- paste0(cluster_name, "_", ordered_labels)
+  }
+
+  refined_levels <- unique(refined)
+  median_time <- tapply(time_numeric, refined, stats::median)
+  refined_levels <- names(sort(median_time[refined_levels], na.last = TRUE))
+  relabel_map <- stats::setNames(
+    paste0("C", seq_along(refined_levels)),
+    refined_levels
+  )
+
+  factor(relabel_map[refined], levels = unname(relabel_map))
+}
+
+
+.compute_tata_cell_space <- function(
+    embedding,
+    pseudotime = NULL,
+    branch_probabilities = NULL,
+    branch_probability_columns = character(0),
+    n_components = 5L) {
+  .safe_scale <- function(mat) {
+    mat <- as.matrix(mat)
+    if (!is.numeric(mat)) {
+      storage.mode(mat) <- "numeric"
+    }
+    keep <- apply(mat, 2L, function(x) {
+      finite_x <- x[is.finite(x)]
+      length(finite_x) > 1L && stats::sd(finite_x) > 0
+    })
+    if (!any(keep)) {
+      return(matrix(numeric(0), nrow = nrow(mat), ncol = 0L))
+    }
+    mat <- mat[, keep, drop = FALSE]
+    for (j in seq_len(ncol(mat))) {
+      col_j <- mat[, j]
+      finite_j <- col_j[is.finite(col_j)]
+      fill_value <- if (length(finite_j) > 0L) stats::median(finite_j) else 0
+      col_j[!is.finite(col_j)] <- fill_value
+      sd_j <- stats::sd(col_j)
+      if (!is.finite(sd_j) || sd_j <= 0) {
+        col_j[] <- 0
+      } else {
+        col_j <- (col_j - mean(col_j)) / sd_j
+      }
+      mat[, j] <- col_j
+    }
+    mat
+  }
+
+  embedding <- as.matrix(embedding)
+  if (!is.numeric(embedding)) {
+    storage.mode(embedding) <- "numeric"
+  }
+
+  keep_dims <- seq_len(min(5L, ncol(embedding)))
+  feature_blocks <- list(.safe_scale(embedding[, keep_dims, drop = FALSE]))
+
+  if (!is.null(pseudotime)) {
+    feature_blocks[[length(feature_blocks) + 1L]] <- matrix(
+      .scale_to_unit(as.numeric(pseudotime)),
+      ncol = 1L
+    )
+  }
+
+  if (!is.null(branch_probabilities) && length(branch_probability_columns) > 0L) {
+    prob_mat <- as.matrix(branch_probabilities[, branch_probability_columns, drop = FALSE])
+    if (!is.numeric(prob_mat)) {
+      storage.mode(prob_mat) <- "numeric"
+    }
+    prob_mat <- .safe_scale(prob_mat)
+    feature_blocks[[length(feature_blocks) + 1L]] <- 0.60 * prob_mat
+  }
+
+  feature_mat <- do.call(cbind, feature_blocks)
+  if (ncol(feature_mat) == 0L) {
+    return(matrix(0, nrow = nrow(embedding), ncol = 1L))
+  }
+  feature_mat <- .safe_scale(feature_mat)
+
+  if (ncol(feature_mat) == 0L) {
+    return(matrix(0, nrow = nrow(embedding), ncol = 1L))
+  }
+
+  if (ncol(feature_mat) == 1L) {
+    out <- matrix(feature_mat[, 1], ncol = 1L)
+    colnames(out) <- "TATA1"
+    rownames(out) <- rownames(embedding)
+    return(out)
+  }
+
+  fit <- stats::prcomp(feature_mat, center = TRUE, scale. = FALSE)
+  n_keep <- min(as.integer(n_components), ncol(fit$x))
+  out <- fit$x[, seq_len(n_keep), drop = FALSE]
+  colnames(out) <- paste0("TATA", seq_len(ncol(out)))
+  rownames(out) <- rownames(embedding)
+  out
+}

@@ -42,6 +42,9 @@ The workflow below:
 - computes topology and time-consistency scores between clusters
 - constructs the abstract TATA graph
 - runs the one-step `run_tata()` wrapper and overlays the inferred trajectories
+- computes terminal-branch probabilities and entropy/plasticity
+- extracts branch-specific cells and branch-specific gene trends
+- summarizes the results with an overview plotting helper
 
 The simulation is intentionally awkward for topology-only methods because the
 earliest cells are near the middle of the embedding rather than at a clear tip.
@@ -245,11 +248,39 @@ plot_tata_cluster_graph(
 )
 ```
 
+For a more PAGA-style abstract view, the same graph can also be drawn in its
+own layout without the embedding in the background:
+
+```{r eval = run_tata_demo}
+plot_tata_cluster_graph(
+  list(
+    cluster_graph = tata_manual$graph,
+    sce = sce,
+    parameters = list(cluster_col = "tata_cluster_step")
+  ),
+  layout_mode = "graph",
+  node_colour_by = "median_time",
+  main = "Manual TATA abstract graph"
+)
+```
+
+The same edge table can also be summarized in the topology-versus-time plane.
+This makes it easier to see which cluster pairs are kept because they are both
+well connected and temporally plausible.
+
+```{r eval = run_tata_demo}
+plot_tata_edge_causality(
+  list(cluster_edge_table = tata_manual$edge_table)
+)
+```
+
 ## Run the full wrapper
 
 For most analyses it is simpler to call `run_tata()` directly and let the
 package carry out graph construction, clustering, edge scoring, and
-pseudotime.
+pseudotime. In this simulated example we also set `expected_branches = 3` to
+help the downstream branch-probability layer recover the known three-arm
+design.
 
 ```{r eval = run_tata_demo}
 tata <- run_tata(
@@ -265,6 +296,7 @@ tata <- run_tata(
   prune_threshold = 0.001,
   time_weight_mode = "directional_confidence",
   do_pseudotime = TRUE,
+  expected_branches = 3,
   seed = 101
 )
 
@@ -291,16 +323,24 @@ plot_tata_cluster_graph(
 )
 ```
 
+```{r eval = run_tata_demo}
+plot_tata_cluster_graph(
+  tata,
+  layout_mode = "graph",
+  node_colour_by = "median_time",
+  main = "TATA abstract graph"
+)
+```
+
 `plot_tata_trajectory_embedding()` provides a more classic trajectory overlay.
-Use `mode = "full"` to draw all inferred paths or `mode = "combined"` to show
-one long summary arrow per major branch.
+Use `max_paths` to limit the number of displayed root-to-terminal paths when
+you want a cleaner summary.
 
 ```{r eval = run_tata_demo}
 plot_tata_trajectory_embedding(
   tata,
   dimred = "UMAP",
   colour_by = "timepoint",
-  mode = "full",
   smooth_paths = TRUE
 )
 ```
@@ -310,10 +350,241 @@ plot_tata_trajectory_embedding(
   tata,
   dimred = "UMAP",
   colour_by = "timepoint",
-  mode = "combined",
   max_paths = 3,
   smooth_paths = TRUE
 )
+```
+
+## What time adds beyond topology
+
+The cleanest comparison is against a topology-only ablation of the same TATA
+workflow. This keeps graph construction and abstraction the same, but removes
+the real time signal from edge scoring and direction assignment.
+
+```{r eval = run_tata_demo}
+tata_topology <- run_tata(
+  sce = sce,
+  dimred = "PCA",
+  use_time = FALSE,
+  time_col = NULL,
+  cluster_col = "tata_cluster_topology",
+  k = 30,
+  cluster_method = "louvain",
+  alpha = 1,
+  beta = 1,
+  direction_threshold = 0.10,
+  prune_threshold = 0.001,
+  do_pseudotime = TRUE,
+  expected_branches = 3,
+  seed = 101
+)
+```
+
+```{r eval = run_tata_demo}
+plot_tata_cluster_graph(
+  tata_topology,
+  dimred = "UMAP",
+  layout_mode = "embedding",
+  show_cells = TRUE,
+  colour_by = "timepoint",
+  node_colour_by = "cluster",
+  main = "Topology-only TATA graph aligned to UMAP"
+)
+```
+
+```{r eval = run_tata_demo}
+plot_tata_time_calibration(
+  tata,
+  branch_col = "condition",
+  summary = "median_iqr"
+)
+```
+
+```{r eval = run_tata_demo}
+plot_tata_time_calibration(
+  tata_topology,
+  time_col = "timepoint",
+  branch_col = "condition",
+  summary = "median_iqr"
+)
+```
+
+```{r eval = run_tata_demo}
+plot_tata_edge_causality(tata)
+```
+
+## Branch probabilities and plasticity
+
+TATA now adds a Palantir-style downstream layer on top of the abstract graph:
+
+- terminal-branch probabilities for each cluster and cell
+- a branch-entropy score that measures how committed or ambiguous each cell is
+- a hard branch assignment for convenient downstream selection
+
+Inspect the inferred terminal branches:
+
+```{r eval = run_tata_demo}
+tata$terminal_clusters
+
+head(
+  tata$cluster_branch_probabilities[
+    ,
+    c(
+      "cluster",
+      grep("^tata_prob_", colnames(tata$cluster_branch_probabilities), value = TRUE),
+      "tata_branch_entropy",
+      "tata_branch_assignment"
+    )
+  ]
+)
+```
+
+The entropy score highlights ambiguous cells, while the hard assignment provides
+a simple branch label:
+
+```{r eval = run_tata_demo}
+PlotReduction(sce_tata, reduction = "UMAP", colour_by = "tata_branch_entropy")
+PlotReduction(sce_tata, reduction = "UMAP", colour_by = "tata_branch_assignment")
+```
+
+To view the full branch-probability landscape, plot one panel per terminal
+branch:
+
+```{r eval = run_tata_demo}
+plot_tata_branch_probabilities(
+  tata,
+  dimred = "UMAP",
+  ncol = 2
+)
+```
+
+## Branch selection and representative cells
+
+The branch-selection helper is useful when you want to isolate the cells most
+compatible with one lineage.
+
+```{r eval = run_tata_demo}
+branch_one <- tata$terminal_clusters[1]
+
+branch_one_cells <- select_tata_branch_cells(
+  tata,
+  branch = branch_one,
+  selection_mode = "soft",
+  probability_threshold = 0.60
+)
+
+head(branch_one_cells)
+sum(branch_one_cells$selected)
+```
+
+```{r eval = run_tata_demo}
+plot_tata_branch_selection(
+  tata,
+  branch = branch_one,
+  dimred = "UMAP",
+  selection_mode = "soft",
+  probability_threshold = 0.60
+)
+```
+
+It is also helpful to inspect a few representative cells directly:
+
+```{r eval = run_tata_demo}
+plot_tata_terminal_probabilities(
+  tata,
+  n_cells = 4
+)
+```
+
+On this simulated dataset we can also compare the inferred hard branch labels
+against the known branch identities.
+
+```{r eval = run_tata_demo}
+plot_tata_branch_confusion(
+  tata,
+  truth_col = "condition",
+  predicted_col = "tata_branch_assignment",
+  normalize = "truth"
+)
+```
+
+## Branch-specific gene trends
+
+Once TATA has pseudotime and branch probabilities, we can fit branch-specific
+gene-expression trends. For the simulation, we use genes from branch-associated
+feature modules stored in `rowData(sce)$feature_module`.
+
+```{r eval = run_tata_demo}
+feature_modules <- SummarizedExperiment::rowData(sce_tata)$feature_module
+
+trend_genes <- unique(c(
+  rownames(sce_tata)[feature_modules == "branch_A"][1:2],
+  rownames(sce_tata)[feature_modules == "branch_B"][1:2],
+  rownames(sce_tata)[feature_modules == "branch_C"][1:2],
+  rownames(sce_tata)[feature_modules == "condition"][1:2]
+))
+
+trend_genes
+```
+
+```{r eval = run_tata_demo}
+tata_trends <- compute_tata_gene_trends(
+  tata,
+  genes = trend_genes
+)
+
+head(tata_trends$trend_table)
+```
+
+```{r eval = run_tata_demo}
+plot_tata_gene_trends(
+  tata_trends,
+  ncol = 3
+)
+```
+
+The fitted trends can also be clustered by shape and shown as a heatmap:
+
+```{r eval = run_tata_demo}
+trend_clusters <- cluster_tata_gene_trends(
+  tata_trends,
+  n_clusters = 3,
+  seed = 101
+)
+
+trend_clusters
+```
+
+```{r eval = run_tata_demo}
+plot_tata_gene_trend_heatmap(
+  tata_trends,
+  n_clusters = 3
+)
+```
+
+## Compact TATA result overview
+
+`plot_tata_results()` bundles the most common summary views into a named list of
+plots so you can quickly inspect pseudotime, entropy, branch probabilities, and
+representative-cell fate profiles.
+
+```{r eval = run_tata_demo}
+tata_overview <- plot_tata_results(
+  tata,
+  dimred = "UMAP",
+  n_probability_cells = 4
+)
+
+names(tata_overview)
+```
+
+```{r eval = run_tata_demo}
+tata_overview$pseudotime
+tata_overview$entropy
+tata_overview$time_calibration
+tata_overview$edge_causality
+tata_overview$branch_probabilities
+tata_overview$representative_cells
 ```
 
 ## Notes
@@ -325,3 +596,8 @@ plot_tata_trajectory_embedding(
   layout or directly on top of a chosen embedding.
 - `plot_tata_trajectory_embedding()` is useful when you want a simpler
   trajectory-style overlay rather than the full abstract graph.
+- `compute_tata_branch_probabilities()` adds terminal-branch probabilities,
+  entropy/plasticity, and hard branch assignments to TATA results.
+- `compute_tata_gene_trends()` uses TATA pseudotime and branch probabilities to
+  fit branch-specific expression trends for downstream interpretation.
+- `plot_tata_results()` provides a compact overview of the key TATA outputs.

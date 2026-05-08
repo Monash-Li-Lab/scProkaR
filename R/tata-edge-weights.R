@@ -91,6 +91,9 @@ compute_time_weights <- function(
   cluster_levels <- levels(clusters)
   cluster_id <- as.integer(clusters)
   time_numeric <- .coerce_time_to_numeric(timepoint)
+  typical_step <- .typical_time_step(time_numeric)
+  cluster_time_list <- split(time_numeric, clusters)
+  cluster_median_time <- vapply(cluster_time_list, stats::median, numeric(1))
 
   pair_grid <- utils::combn(cluster_levels, 2)
   pair_key <- paste(pair_grid[1, ], pair_grid[2, ], sep = "||")
@@ -124,7 +127,7 @@ compute_time_weights <- function(
         time_b <- time_numeric[i]
       }
 
-      flow_store[[pair_name]] <- c(flow_store[[pair_name]], sign(time_b - time_a))
+      flow_store[[pair_name]] <- c(flow_store[[pair_name]], time_b - time_a)
     }
   }
 
@@ -133,21 +136,37 @@ compute_time_weights <- function(
     cluster_a <- pair_grid[1, idx]
     cluster_b <- pair_grid[2, idx]
     pair_name <- paste(cluster_a, cluster_b, sep = "||")
-    pair_flow <- flow_store[[pair_name]]
+    pair_delta <- flow_store[[pair_name]]
+    cluster_gap <- as.numeric(cluster_median_time[[cluster_b]] - cluster_median_time[[cluster_a]])
+    time_overlap <- .time_distribution_overlap(
+      cluster_time_list[[cluster_a]],
+      cluster_time_list[[cluster_b]]
+    )
 
-    if (length(pair_flow) == 0L) {
+    if (length(pair_delta) == 0L) {
       flow_score <- 0
       time_weight <- 0.5
-      time_consistency <- 0.5
+      time_consistency <- 0
+      signed_time_score <- 0
+      edge_median_delta <- cluster_gap
+      jump_penalty <- 1
       n_time_edges <- 0L
     } else {
-      flow_score <- mean(pair_flow)
-      time_weight <- (flow_score + 1) / 2
-      # Strongly directional flow should support retaining the edge regardless
-      # of whether the alphabetical cluster ordering matches the biological
-      # direction. This separates direction assignment from edge confidence.
-      time_consistency <- max(time_weight, 1 - time_weight)
-      n_time_edges <- length(pair_flow)
+      flow_score <- mean(sign(pair_delta))
+      edge_median_delta <- stats::median(pair_delta)
+      lag_strength <- tanh(abs(cluster_gap) / pmax(typical_step, 1e-8))
+      overlap_separation <- 1 - time_overlap
+      jump_ratio <- abs(cluster_gap) / pmax(typical_step, 1e-8)
+      jump_penalty <- 1 / (1 + pmax(jump_ratio - 2, 0) / 2)
+      direction_source <- if (abs(flow_score) > 1e-8) flow_score else sign(cluster_gap)
+      direction_strength <- max(abs(flow_score), min(1, abs(cluster_gap) / pmax(2 * typical_step, 1e-8)))
+      time_consistency <- pmin(
+        1,
+        (0.60 * direction_strength + 0.25 * lag_strength + 0.15 * overlap_separation) * jump_penalty
+      )
+      signed_time_score <- sign(direction_source) * time_consistency
+      time_weight <- (signed_time_score + 1) / 2
+      n_time_edges <- length(pair_delta)
     }
 
     edge_rows[[idx]] <- data.frame(
@@ -155,6 +174,11 @@ compute_time_weights <- function(
       cluster_b = cluster_b,
       n_time_edges = n_time_edges,
       flow_score = flow_score,
+      signed_time_score = signed_time_score,
+      median_time_gap = cluster_gap,
+      edge_median_delta = edge_median_delta,
+      time_overlap = time_overlap,
+      jump_penalty = jump_penalty,
       time_weight = time_weight,
       time_consistency = time_consistency,
       stringsAsFactors = FALSE
@@ -162,6 +186,43 @@ compute_time_weights <- function(
   }
 
   do.call(rbind, edge_rows)
+}
+
+
+.make_neutral_time_table <- function(clusters) {
+  cluster_levels <- levels(factor(clusters))
+  pair_grid <- utils::combn(cluster_levels, 2)
+  if (ncol(pair_grid) == 0L) {
+    return(data.frame(
+      cluster_a = character(0),
+      cluster_b = character(0),
+      n_time_edges = integer(0),
+      flow_score = numeric(0),
+      signed_time_score = numeric(0),
+      median_time_gap = numeric(0),
+      edge_median_delta = numeric(0),
+      time_overlap = numeric(0),
+      jump_penalty = numeric(0),
+      time_weight = numeric(0),
+      time_consistency = numeric(0),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  data.frame(
+    cluster_a = pair_grid[1, ],
+    cluster_b = pair_grid[2, ],
+    n_time_edges = 0L,
+    flow_score = 0,
+    signed_time_score = 0,
+    median_time_gap = 0,
+    edge_median_delta = 0,
+    time_overlap = 1,
+    jump_penalty = 1,
+    time_weight = 0.5,
+    time_consistency = 1,
+    stringsAsFactors = FALSE
+  )
 }
 
 
@@ -220,6 +281,10 @@ build_tata_graph <- function(
   )
 
   edge_table$flow_score[is.na(edge_table$flow_score)] <- 0
+  if (!"signed_time_score" %in% colnames(edge_table)) {
+    edge_table$signed_time_score <- edge_table$flow_score
+  }
+  edge_table$signed_time_score[is.na(edge_table$signed_time_score)] <- 0
   edge_table$time_weight[is.na(edge_table$time_weight)] <- 0.5
   if (!"time_consistency" %in% colnames(edge_table)) {
     edge_table$time_consistency <- abs(edge_table$flow_score)
@@ -237,9 +302,9 @@ build_tata_graph <- function(
     (edge_table$time_factor ^ beta)
 
   edge_table$direction <- ifelse(
-    edge_table$flow_score > direction_threshold,
+    edge_table$signed_time_score > direction_threshold,
     "a_to_b",
-    ifelse(edge_table$flow_score < -direction_threshold, "b_to_a", "ambiguous")
+    ifelse(edge_table$signed_time_score < -direction_threshold, "b_to_a", "ambiguous")
   )
 
   edge_table$from <- ifelse(edge_table$direction == "b_to_a", edge_table$cluster_b, edge_table$cluster_a)
@@ -302,6 +367,9 @@ build_tata_graph <- function(
           time_weight = rep(edge_row$time_weight, 2),
           time_consistency = rep(edge_row$time_consistency, 2),
           flow_score = rep(edge_row$flow_score, 2),
+          signed_time_score = rep(edge_row$signed_time_score, 2),
+          median_time_gap = rep(edge_row$median_time_gap, 2),
+          time_overlap = rep(edge_row$time_overlap, 2),
           direction = rep("ambiguous", 2),
           ambiguous = rep(TRUE, 2),
           stringsAsFactors = FALSE
@@ -315,6 +383,9 @@ build_tata_graph <- function(
           time_weight = edge_row$time_weight,
           time_consistency = edge_row$time_consistency,
           flow_score = edge_row$flow_score,
+          signed_time_score = edge_row$signed_time_score,
+          median_time_gap = edge_row$median_time_gap,
+          time_overlap = edge_row$time_overlap,
           direction = "directed",
           ambiguous = FALSE,
           stringsAsFactors = FALSE

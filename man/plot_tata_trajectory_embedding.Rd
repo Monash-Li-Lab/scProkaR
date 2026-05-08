@@ -8,7 +8,6 @@ plot_tata_trajectory_embedding(
   tata_result,
   dimred = "UMAP",
   colour_by = "timepoint",
-  mode = c("full", "combined"),
   max_paths = NULL,
   point_size = 0.6,
   point_alpha = 0.75,
@@ -27,13 +26,6 @@ plot_tata_trajectory_embedding(
 
 \item{colour_by}{Optional \code{colData} column used to color cells. Set to \code{NULL}
 for a grey background.}
-
-\item{mode}{Display mode for the inferred trajectories. Choices are:
-\itemize{
-\item \code{"full"}: draw one root-to-terminal path for each terminal cluster.
-\item \code{"combined"}: compress paths with a shared trunk and draw one
-representative path per major branch.
-}}
 
 \item{max_paths}{Optional maximum number of paths to plot after path
 selection. \code{NULL} keeps all available paths.}
