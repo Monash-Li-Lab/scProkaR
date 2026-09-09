@@ -42,7 +42,8 @@ and summarizes the results with scores and optional plots.
 \examples{
 set.seed(1)
 sce <- simulate_tata_multidrug_sce(
-    n_cells = 300, n_features = 60, n_pcs = 10)
+    n_cells = 300, n_features = 60, n_pcs = 10
+)
 pca <- SingleCellExperiment::reducedDim(sce, "PCA")
 
 # Use the drug condition as batch and a quick clustering as the
@@ -52,14 +53,17 @@ sce$cell_type <- factor(stats::kmeans(pca, centers = 3)$cluster)
 
 # Register a second embedding so it is scored alongside the PCA.
 sce <- RegisterIntegrationEmbedding(
-    sce, pca[, seq_len(5)], method_name = "pca_top5")
+    sce, pca[, seq_len(5)],
+    method_name = "pca_top5"
+)
 
 bench <- BenchmarkIntegration(
     sce,
     batch_col = "batch",
     label_col = "cell_type",
     methods = c("PCA", "pca_top5"),
-    return_plots = FALSE)
+    return_plots = FALSE
+)
 head(bench$scores)
 bench$ranking
 }

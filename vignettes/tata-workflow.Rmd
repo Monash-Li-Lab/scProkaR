@@ -1,603 +1,1066 @@
 ---
-title: "SCProkaR TATA Workflow"
-output: rmarkdown::html_vignette
+title: "Time Aware Trajectory Analysis (TATA) with SCProkaR"
+author:
+- name: Ning Liu
+  affiliation: University of Adelaide
+- name: Jinxin Zhao
+  affiliation: Monash University
+date: "`r Sys.Date()`"
+package: SCProkaR
+output:
+  BiocStyle::html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+abstract: |
+  Time Aware Trajectory Analysis (TATA) is the trajectory component of
+  SCProkaR. It abstracts a microbial single-cell dataset into a graph of
+  cell states and uses the experimental sampling times of a perturbation
+  time course, rather than topology alone, to score, orient and prune the
+  transitions between those states. This vignette builds a simulated
+  three-drug branching time course, walks through the TATA pipeline both
+  step by step and through the `run_tata()` wrapper, quantifies what the
+  time labels add over a topology-only ablation, and then uses the
+  resulting pseudotime and terminal-branch probabilities for branch
+  selection and branch-specific gene-trend analysis.
 vignette: >
-  %\VignetteIndexEntry{SCProkaR TATA Workflow}
+  %\VignetteIndexEntry{2. Time Aware Trajectory Analysis (TATA)}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
-```{r, include = FALSE}
+```{r setup, include = FALSE}
 knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>",
-  fig.width = 6,
-  fig.height = 5
+    collapse = TRUE,
+    comment = "#>",
+    crop = NULL,
+    fig.width = 6,
+    fig.height = 4.5,
+    dpi = 96,
+    fig.retina = 1
 )
-
-if (file.exists("../DESCRIPTION")) {
-  if (requireNamespace("devtools", quietly = TRUE)) {
-    devtools::load_all("..")
-  } else {
-    library(SCProkaR)
-  }
-} else {
-  library(SCProkaR)
-}
-
-run_tata_demo <- TRUE
 ```
 
-## Overview
+# Introduction
 
-This vignette demonstrates Time Aware Trajectory Analysis (TATA), a
-PAGA-inspired trajectory abstraction that uses real experimental time labels to
-score and direct cluster-level transitions.
+`r BiocStyle::Biocpkg("SCProkaR")` is a `SingleCellExperiment`-centred
+workflow for microbial (prokaryotic) single-cell RNA sequencing data. It
+standardises bacterial input objects, computes prokaryote-specific quality
+control metrics such as ribosomal RNA fraction, integrates batches, scores
+the resulting embeddings with scIB-inspired benchmarking metrics, and runs
+pseudobulk differential expression with `r BiocStyle::Biocpkg("edgeR")`.
+This vignette covers its trajectory component, Time Aware Trajectory
+Analysis (TATA).
 
-The workflow below:
+## The problem TATA addresses
 
-- simulates a center-rooted multi-drug time course
-- visualizes the stored PCA and UMAP representations
-- builds the cell-level kNN graph and graph-based clusters
-- computes topology and time-consistency scores between clusters
-- constructs the abstract TATA graph
-- runs the one-step `run_tata()` wrapper and overlays the inferred trajectories
-- computes terminal-branch probabilities and entropy/plasticity
-- extracts branch-specific cells and branch-specific gene trends
-- summarizes the results with an overview plotting helper
+Bacterial single-cell RNA-seq experiments are usually *perturbation time
+courses*: a population is challenged with an antibiotic or a stress and
+sampled at a handful of known times. The biological question is directional
+— which states give rise to which, when does a tolerant subpopulation
+diverge, and which genes change along the way.
 
-The simulation is intentionally awkward for topology-only methods because the
-earliest cells are near the middle of the embedding rather than at a clear tip.
+Standard trajectory inference is poorly suited to this setting for two
+reasons that are specific to microbial data:
 
-## Load packages
+* **Bacterial transcriptomes are shallow and low-complexity.** With a few
+  hundred to a few thousand detected genes and no rich developmental
+  programme, the manifold learnt from expression alone is noisy, and the
+  geometric "tips" that topology-only methods use as roots and endpoints
+  are often not the biologically earliest or latest states.
+* **The root is frequently in the middle.** An untreated founder population
+  that diverges into several drug-specific responses sits in the centre of
+  the embedding, not at a boundary. Purely topological methods, which infer
+  direction from graph structure, have no way to know this and will happily
+  run the trajectory backwards.
 
-```{r}
+TATA solves this by *not* asking the data where time starts. The
+experimental sampling time is a measured covariate, so TATA uses it
+directly: it scores each candidate transition between coarse cell states by
+combining a topology term (are these two states actually connected in the
+cell--cell graph?) with a time term (do the cells on either side of that
+connection respect the observed time order?). Edges that are well connected
+but temporally implausible are down-weighted or pruned, and surviving edges
+are oriented from earlier to later. The result is a directed abstract graph
+that is anchored to real experimental time.
+
+## Relationship to Bioconductor single-cell infrastructure
+
+Every object in SCProkaR is a
+`r BiocStyle::Biocpkg("SingleCellExperiment")`, so TATA is a drop-in step in
+an ordinary Bioconductor workflow rather than a parallel universe:
+
+* Input is a `SingleCellExperiment` whose `reducedDims` slot holds a PCA (or
+  any other) representation — you can produce that with
+  `r BiocStyle::Biocpkg("scater")` and
+  `r BiocStyle::Biocpkg("scran")`, or with `IntegrateBacData()` from this
+  package, which wraps `r BiocStyle::Biocpkg("batchelor")` and Harmony.
+* Output is written straight back into the same object: cluster labels,
+  `tata_pseudotime`, `tata_pseudotime_scaled`, per-cell terminal-branch
+  probabilities, branch entropy and branch assignments all land in
+  `colData()`, a `"TATA"` embedding lands in `reducedDims()`, and the
+  abstract graph and its edge table land in `metadata()`.
+* Because of that, downstream Bioconductor tools work unchanged. Branch
+  labels can be passed to the pseudobulk `r BiocStyle::Biocpkg("edgeR")`
+  helpers in this package, TATA pseudotime can be handed to
+  `r BiocStyle::Biocpkg("edgeR")` spline models, and the object can be
+  visualised with any `SingleCellExperiment`-aware plotting package.
+
+TATA itself borrows its abstraction idea from PAGA and its terminal-fate
+probability layer from Palantir, but replaces their topology-derived
+direction with measured experimental time.
+
+# Installation
+
+```{r install, eval = FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("SCProkaR")
+```
+
+# Setting up
+
+```{r load-packages, message = FALSE}
+library(SCProkaR)
 library(SingleCellExperiment)
 library(SummarizedExperiment)
 ```
 
-## Simulate a multi-drug trajectory
+TATA builds its cell--cell graph with whichever nearest-neighbour backend is
+installed. `r BiocStyle::CRANpkg("FNN")` and
+`r BiocStyle::Biocpkg("BiocNeighbors")` are both in `Suggests`; if neither is
+available the package falls back to an exact `stats::dist()` search, so the
+analysis below runs either way — only the speed changes.
 
-```{r eval = run_tata_demo}
+```{r knn-backends}
+c(
+    FNN = requireNamespace("FNN", quietly = TRUE),
+    BiocNeighbors = requireNamespace("BiocNeighbors", quietly = TRUE)
+)
+```
+
+# A simulated multi-drug branching time course
+
+`simulate_tata_multidrug_sce()` generates a `SingleCellExperiment` in which a
+shared founder population is sampled at six times (0--120 h) and diverges
+into three drug-specific arms with *different onset times*: drug A commits
+early (24 h), drug C in the middle (48 h) and drug B late (96 h).
+
+The simulation is deliberately awkward for topology-only inference: the
+earliest cells sit near the centre of the embedding rather than at an
+obvious tip, so a method that guesses direction from shape alone has no
+reason to start there.
+
+```{r simulate-multidrug}
 set.seed(101)
 
 sce <- simulate_tata_multidrug_sce(
-  n_cells = 2500,
-  n_features = 100,
-  n_pcs = 20,
-  seed = 101
+    n_cells = 3000,
+    n_features = 80,
+    n_pcs = 15
 )
 
 sce$timepoint_factor <- factor(
-  sce$timepoint,
-  levels = sort(unique(sce$timepoint))
+    sce$timepoint,
+    levels = sort(unique(sce$timepoint))
+)
+
+sce
+```
+
+The design is a balanced condition-by-time grid:
+
+```{r simulation-design}
+with(
+    as.data.frame(colData(sce)),
+    table(condition, timepoint)
 )
 ```
 
-Inspect the simulation design:
+Plotting the stored UMAP by time, by drug and by the ground-truth state
+shows the branching structure and, importantly, that the 0 h cells are
+interior rather than peripheral.
 
-```{r eval = run_tata_demo}
-with(as.data.frame(SummarizedExperiment::colData(sce)), table(condition, timepoint))
-```
-
-Visualize the stored embedding:
-
-```{r eval = run_tata_demo}
+```{r plot-simulation-time}
 PlotReduction(sce, reduction = "UMAP", colour_by = "timepoint_factor")
-PlotReduction(sce, reduction = "UMAP", colour_by = "condition")
-PlotReduction(sce, reduction = "UMAP", colour_by = "simulated_state")
 ```
 
-## Build the cell-cell graph
+```{r plot-simulation-condition}
+PlotReduction(sce, reduction = "UMAP", colour_by = "condition")
+```
 
-TATA starts from a low-dimensional representation. Here we use the stored PCA
-coordinates and connect each cell to its nearest neighbours.
+```{r plot-simulation-branch}
+PlotReduction(sce, reduction = "UMAP", colour_by = "simulated_branch")
+```
 
-```{r eval = run_tata_demo}
+# The TATA pipeline, step by step
+
+`run_tata()` performs the whole analysis in one call, and most users should
+start there. The individual steps are exported as well, because inspecting
+them is the fastest way to understand *why* a particular graph came out the
+way it did — and to swap in your own clustering or edge scoring during
+method development.
+
+## Build the cell--cell graph
+
+TATA operates on a low-dimensional representation. Here we use the stored
+PCA and connect each cell to its `k` nearest neighbours.
+
+```{r build-knn}
 knn <- build_knn_graph(
-  x = sce,
-  dimred = "PCA",
-  k = 30
+    x = sce,
+    dimred = "PCA",
+    k = 30
 )
 
 c(
-  n_cells = igraph::vcount(knn$graph),
-  n_edges = igraph::ecount(knn$graph),
-  k = knn$k
+    n_cells = igraph::vcount(knn$graph),
+    n_edges = igraph::ecount(knn$graph),
+    k = knn$k
 )
+```
+
+```{r knn-engine}
+knn$knn_engine
 ```
 
 ## Cluster cells into coarse states
 
-The cell graph is clustered into coarse states that serve as nodes in the
-abstract TATA graph.
+The cell graph is partitioned into coarse states, which become the *nodes*
+of the abstract TATA graph. TATA is not sensitive to the exact number of
+clusters — it needs enough of them that a transition can be localised, but
+not so many that each cluster is a single time point.
 
-```{r eval = run_tata_demo}
-sce$tata_cluster_step <- factor(
-  cluster_graph_states(
+```{r cluster-states}
+sce$tata_cluster_step <- cluster_graph_states(
     cell_graph = knn$graph,
-    method = "louvain",
-    seed = 101
-  )
+    method = "louvain"
 )
 
 table(sce$tata_cluster_step)
+```
+
+```{r plot-cluster-states}
 PlotReduction(sce, reduction = "UMAP", colour_by = "tata_cluster_step")
 ```
 
-## Compute topology and time scores
+If `r BiocStyle::CRANpkg("cluster")` is installed we can sanity-check the
+partition with a silhouette width on a subsample of cells. This is purely
+diagnostic; TATA does not require it.
 
-TATA combines two ingredients for each cluster pair:
+```{r cluster-silhouette}
+if (requireNamespace("cluster", quietly = TRUE)) {
+    set.seed(101)
+    idx <- sample(seq_len(ncol(sce)), 600)
+    pcs <- reducedDim(sce, "PCA")[idx, seq_len(5)]
+    sil <- cluster::silhouette(
+        as.integer(sce$tata_cluster_step[idx]),
+        stats::dist(pcs)
+    )
+    round(mean(sil[, "sil_width"]), 3)
+} else {
+    message("Install 'cluster' for the optional silhouette diagnostic.")
+}
+```
 
-- a topology score based on how strongly the two clusters are connected in the
-  cell-cell graph
-- a time-consistency score based on whether those inter-cluster edges follow
-  the observed experimental time order
+## Score cluster pairs on topology and on time
 
-```{r eval = run_tata_demo}
+Each candidate edge of the abstract graph gets two independent scores.
+
+`compute_topology_weights()` asks a purely structural question: do these two
+clusters share more cell--cell edges than you would expect by chance given
+their sizes? The ratio of observed to expected edges is the topology weight.
+
+```{r topology-weights}
 topology_table <- compute_topology_weights(
-  adjacency = knn$adjacency,
-  clusters = sce$tata_cluster_step
-)
-
-time_table <- compute_time_weights(
-  adjacency = knn$adjacency,
-  clusters = sce$tata_cluster_step,
-  timepoint = sce$timepoint
+    adjacency = knn$adjacency,
+    clusters = sce$tata_cluster_step
 )
 
 head(
-  topology_table[
-    order(-topology_table$topology_weight),
-    c("cluster_a", "cluster_b", "observed_edges", "expected_edges", "topology_weight")
-  ],
-  8
-)
-
-head(
-  time_table[
-    order(-time_table$time_consistency),
-    c("cluster_a", "cluster_b", "n_time_edges", "flow_score", "time_weight", "time_consistency")
-  ],
-  8
+    topology_table[
+        order(-topology_table$topology_weight),
+        c(
+            "cluster_a", "cluster_b", "observed_edges",
+            "expected_edges", "topology_weight"
+        )
+    ],
+    6
 )
 ```
 
-```{r eval = run_tata_demo}
+`compute_time_weights()` asks the temporal question: of the cell--cell edges
+that cross between these two clusters, do the individual cells respect the
+experimental time order? `flow_score` runs from -1 to 1 and gives the net
+direction of time across the boundary; `time_consistency` measures how
+reproducible that direction is.
+
+```{r time-weights}
+time_table <- compute_time_weights(
+    adjacency = knn$adjacency,
+    clusters = sce$tata_cluster_step,
+    timepoint = sce$timepoint
+)
+
+head(
+    time_table[
+        order(-time_table$time_consistency),
+        c(
+            "cluster_a", "cluster_b", "n_time_edges",
+            "flow_score", "time_weight", "time_consistency"
+        )
+    ],
+    6
+)
+```
+
+Plotting the two scores against each other makes the point of the method
+visible. The horizontal band near `flow_score = 0` contains pairs that are
+structurally adjacent but temporally uninformative — cells on both sides
+come from the same times, so no transition can be claimed. Points far from
+that band are the pairs where time supplies real directional evidence.
+
+```{r plot-edge-score-scatter}
 edge_metric_table <- merge(
-  topology_table,
-  time_table,
-  by = c("cluster_a", "cluster_b"),
-  all.x = TRUE,
-  sort = FALSE
+    topology_table,
+    time_table,
+    by = c("cluster_a", "cluster_b"),
+    all.x = TRUE,
+    sort = FALSE
 )
 
 ggplot2::ggplot(
-  edge_metric_table,
-  ggplot2::aes(
-    x = topology_weight,
-    y = flow_score,
-    size = observed_edges,
-    colour = time_consistency
-  )
+    edge_metric_table,
+    ggplot2::aes(
+        x = topology_weight,
+        y = flow_score,
+        size = observed_edges,
+        colour = time_consistency
+    )
 ) +
-  ggplot2::geom_hline(yintercept = c(-0.10, 0.10), linetype = 2, colour = "grey60") +
-  ggplot2::geom_point(alpha = 0.8) +
-  ggplot2::scale_colour_viridis_c(option = "plasma") +
-  ggplot2::theme_classic() +
-  ggplot2::labs(
-    title = "Topology and time consistency for cluster pairs",
-    x = "topology weight",
-    y = "temporal flow score",
-    colour = "time consistency",
-    size = "observed edges"
-  )
+    ggplot2::geom_hline(
+        yintercept = c(-0.10, 0.10),
+        linetype = 2,
+        colour = "grey60"
+    ) +
+    ggplot2::geom_point(alpha = 0.8) +
+    ggplot2::scale_colour_viridis_c(option = "plasma") +
+    ggplot2::theme_classic() +
+    ggplot2::labs(
+        title = "Topology and time consistency for cluster pairs",
+        x = "topology weight",
+        y = "temporal flow score",
+        colour = "time consistency",
+        size = "observed edges"
+    )
 ```
 
-## Build the abstract TATA graph
+## Build the abstract graph
 
-```{r eval = run_tata_demo}
+`build_tata_graph()` combines the two score tables into a single edge weight,
+`topology_weight^alpha * time_weight^beta`, prunes edges below
+`prune_threshold`, and orients the survivors using `direction_threshold` on
+the flow score. Edges whose flow score is inside the threshold are kept but
+left undirected, which is the honest answer for a pair that time cannot
+separate.
+
+```{r build-graph-manual}
 tata_manual <- build_tata_graph(
-  topology_table = topology_table,
-  time_table = time_table,
-  clusters = sce$tata_cluster_step,
-  embedding = SingleCellExperiment::reducedDim(sce, "PCA"),
-  timepoint = sce$timepoint,
-  alpha = 1,
-  beta = 1,
-  direction_threshold = 0.10,
-  prune_threshold = 0.001,
-  time_weight_mode = "directional_confidence"
+    topology_table = topology_table,
+    time_table = time_table,
+    clusters = sce$tata_cluster_step,
+    embedding = reducedDim(sce, "PCA"),
+    timepoint = sce$timepoint,
+    alpha = 1,
+    beta = 1,
+    direction_threshold = 0.10,
+    prune_threshold = 0.001,
+    time_weight_mode = "directional_confidence"
 )
 
 head(
-  tata_manual$edge_table[
-    order(-tata_manual$edge_table$tata_weight),
-    c(
-      "cluster_a",
-      "cluster_b",
-      "topology_weight",
-      "flow_score",
-      "time_weight",
-      "time_consistency",
-      "tata_weight",
-      "direction_label",
-      "kept"
-    )
-  ],
-  10
+    tata_manual$edge_table[
+        order(-tata_manual$edge_table$tata_weight),
+        c(
+            "cluster_a", "cluster_b", "topology_weight", "flow_score",
+            "time_consistency", "tata_weight", "direction_label", "kept"
+        )
+    ],
+    8
 )
 ```
 
-The cluster graph is easiest to interpret when it is overlaid onto the same
-embedding used to view the cells:
+The graph is easiest to read when drawn on the same embedding used to view
+the cells, so that each node sits on the cells it summarises.
 
-```{r eval = run_tata_demo}
+```{r plot-manual-graph-embedded}
 plot_tata_cluster_graph(
-  list(
+    list(
+        cluster_graph = tata_manual$graph,
+        sce = sce,
+        parameters = list(cluster_col = "tata_cluster_step")
+    ),
+    dimred = "UMAP",
+    layout_mode = "embedding",
+    show_cells = TRUE,
+    colour_by = "tata_cluster_step",
+    node_colour_by = "cluster",
+    main = "Manual TATA graph aligned to UMAP"
+)
+```
+
+The same graph in a PAGA-style abstract layout, with nodes coloured by
+cluster median time, shows the temporal gradient directly.
+
+```{r plot-manual-graph-abstract}
+plot_tata_cluster_graph(
+    list(
+        cluster_graph = tata_manual$graph,
+        sce = sce,
+        parameters = list(cluster_col = "tata_cluster_step")
+    ),
+    layout_mode = "graph",
+    node_colour_by = "median_time",
+    main = "Manual TATA abstract graph"
+)
+```
+
+## Compute pseudotime
+
+`compute_tata_pseudotime()` picks a root (by default the cluster with the
+earliest median experimental time), walks the directed graph with inverse
+edge weights, and then spreads cells within each cluster by their local time
+rank. Because the root is chosen by measured time rather than by graph
+geometry, it lands on the founder population even though that population is
+in the middle of the embedding.
+
+```{r manual-pseudotime}
+sce$tata_cluster_step <- factor(sce$tata_cluster_step)
+
+pt_manual <- compute_tata_pseudotime(
     cluster_graph = tata_manual$graph,
     sce = sce,
-    parameters = list(cluster_col = "tata_cluster_step")
-  ),
-  dimred = "UMAP",
-  layout_mode = "embedding",
-  show_cells = TRUE,
-  colour_by = "tata_cluster_step",
-  node_colour_by = "cluster",
-  main = "Manual TATA graph aligned to UMAP"
+    cluster_col = "tata_cluster_step",
+    time_col = "timepoint"
 )
+
+pt_manual$root_cluster
+summary(pt_manual$cell_pseudotime_scaled)
 ```
 
-For a more PAGA-style abstract view, the same graph can also be drawn in its
-own layout without the embedding in the background:
+The root cluster's median experimental time confirms the choice:
 
-```{r eval = run_tata_demo}
-plot_tata_cluster_graph(
-  list(
-    cluster_graph = tata_manual$graph,
-    sce = sce,
-    parameters = list(cluster_col = "tata_cluster_step")
-  ),
-  layout_mode = "graph",
-  node_colour_by = "median_time",
-  main = "Manual TATA abstract graph"
-)
+```{r manual-root-check}
+tapply(
+    sce$timepoint,
+    sce$tata_cluster_step,
+    median
+)[pt_manual$root_cluster]
 ```
 
-The same edge table can also be summarized in the topology-versus-time plane.
-This makes it easier to see which cluster pairs are kept because they are both
-well connected and temporally plausible.
+# The `run_tata()` wrapper
 
-```{r eval = run_tata_demo}
-plot_tata_edge_causality(
-  list(cluster_edge_table = tata_manual$edge_table)
-)
-```
+For routine analysis, `run_tata()` does everything above in one call: graph
+construction, clustering (with an optional conservative temporal refinement
+step), edge scoring, abstraction, pseudotime and terminal-branch
+probabilities. Setting `expected_branches = 3` tells the branch layer how
+many terminal fates to look for, which matches the known three-arm design.
 
-## Run the full wrapper
+```{r run-tata}
+set.seed(101)
 
-For most analyses it is simpler to call `run_tata()` directly and let the
-package carry out graph construction, clustering, edge scoring, and
-pseudotime. In this simulated example we also set `expected_branches = 3` to
-help the downstream branch-probability layer recover the known three-arm
-design.
-
-```{r eval = run_tata_demo}
 tata <- run_tata(
-  sce = sce,
-  dimred = "PCA",
-  time_col = "timepoint",
-  cluster_col = "tata_cluster",
-  k = 30,
-  cluster_method = "louvain",
-  alpha = 1,
-  beta = 1,
-  direction_threshold = 0.10,
-  prune_threshold = 0.001,
-  time_weight_mode = "directional_confidence",
-  do_pseudotime = TRUE,
-  expected_branches = 3,
-  seed = 101
+    sce = sce,
+    dimred = "PCA",
+    time_col = "timepoint",
+    cluster_col = "tata_cluster",
+    k = 30,
+    cluster_method = "louvain",
+    alpha = 1,
+    beta = 1,
+    direction_threshold = 0.10,
+    prune_threshold = 0.001,
+    time_weight_mode = "directional_confidence",
+    do_pseudotime = TRUE,
+    expected_branches = 3
 )
 
+names(tata)
+```
+
+The updated object carries everything TATA inferred:
+
+```{r inspect-coldata}
 sce_tata <- tata$sce
 sce_tata$tata_cluster <- factor(sce_tata$tata_cluster)
+
+grep("^tata_", colnames(colData(sce_tata)), value = TRUE)
+reducedDimNames(sce_tata)
 ```
 
-Inspect the wrapper output on the embedding:
-
-```{r eval = run_tata_demo}
+```{r plot-tata-clusters}
 PlotReduction(sce_tata, reduction = "UMAP", colour_by = "tata_cluster")
-PlotReduction(sce_tata, reduction = "UMAP", colour_by = "tata_pseudotime_scaled")
 ```
 
-```{r eval = run_tata_demo}
+```{r plot-tata-pseudotime}
+PlotReduction(
+    sce_tata,
+    reduction = "UMAP",
+    colour_by = "tata_pseudotime_scaled"
+)
+```
+
+Pseudotime should increase outward from the interior founder population
+along all three arms simultaneously, rather than sweeping across the
+embedding from one side.
+
+```{r plot-tata-graph-embedded}
 plot_tata_cluster_graph(
-  tata,
-  dimred = "UMAP",
-  layout_mode = "embedding",
-  show_cells = TRUE,
-  colour_by = "timepoint",
-  node_colour_by = "cluster",
-  main = "TATA abstract graph aligned to UMAP"
+    tata,
+    dimred = "UMAP",
+    layout_mode = "embedding",
+    show_cells = TRUE,
+    colour_by = "timepoint",
+    node_colour_by = "cluster",
+    main = "TATA abstract graph aligned to UMAP"
 )
 ```
 
-```{r eval = run_tata_demo}
+```{r plot-tata-graph-abstract}
 plot_tata_cluster_graph(
-  tata,
-  layout_mode = "graph",
-  node_colour_by = "median_time",
-  main = "TATA abstract graph"
+    tata,
+    layout_mode = "graph",
+    node_colour_by = "median_time",
+    main = "TATA abstract graph"
 )
 ```
 
-`plot_tata_trajectory_embedding()` provides a more classic trajectory overlay.
-Use `max_paths` to limit the number of displayed root-to-terminal paths when
-you want a cleaner summary.
+`plot_tata_trajectory_embedding()` gives a more classical trajectory
+overlay, tracing root-to-terminal paths through the cluster centroids. Use
+`max_paths` to keep the figure readable when the graph has many terminal
+states.
 
-```{r eval = run_tata_demo}
+```{r plot-trajectory-all-paths}
 plot_tata_trajectory_embedding(
-  tata,
-  dimred = "UMAP",
-  colour_by = "timepoint",
-  smooth_paths = TRUE
+    tata,
+    dimred = "UMAP",
+    colour_by = "timepoint",
+    smooth_paths = TRUE
 )
 ```
 
-```{r eval = run_tata_demo}
+```{r plot-trajectory-top-paths}
 plot_tata_trajectory_embedding(
-  tata,
-  dimred = "UMAP",
-  colour_by = "timepoint",
-  max_paths = 3,
-  smooth_paths = TRUE
+    tata,
+    dimred = "UMAP",
+    colour_by = "timepoint",
+    max_paths = 3,
+    smooth_paths = TRUE
 )
 ```
 
-## What time adds beyond topology
+# What time adds beyond topology
 
-The cleanest comparison is against a topology-only ablation of the same TATA
-workflow. This keeps graph construction and abstraction the same, but removes
-the real time signal from edge scoring and direction assignment.
+The claim that time labels help is testable, and the cleanest test is an
+ablation: run exactly the same pipeline with `use_time = FALSE`, so graph
+construction, clustering and abstraction are unchanged but the edge scores
+and directions come from topology alone.
 
-```{r eval = run_tata_demo}
+```{r run-tata-topology-only}
+set.seed(101)
+
 tata_topology <- run_tata(
-  sce = sce,
-  dimred = "PCA",
-  use_time = FALSE,
-  time_col = NULL,
-  cluster_col = "tata_cluster_topology",
-  k = 30,
-  cluster_method = "louvain",
-  alpha = 1,
-  beta = 1,
-  direction_threshold = 0.10,
-  prune_threshold = 0.001,
-  do_pseudotime = TRUE,
-  expected_branches = 3,
-  seed = 101
+    sce = sce,
+    dimred = "PCA",
+    use_time = FALSE,
+    time_col = NULL,
+    cluster_col = "tata_cluster_topology",
+    k = 30,
+    cluster_method = "louvain",
+    alpha = 1,
+    beta = 1,
+    direction_threshold = 0.10,
+    prune_threshold = 0.001,
+    do_pseudotime = TRUE,
+    expected_branches = 3
 )
 ```
 
-```{r eval = run_tata_demo}
-plot_tata_cluster_graph(
-  tata_topology,
-  dimred = "UMAP",
-  layout_mode = "embedding",
-  show_cells = TRUE,
-  colour_by = "timepoint",
-  node_colour_by = "cluster",
-  main = "Topology-only TATA graph aligned to UMAP"
+## Benchmarking helpers
+
+SCProkaR exports five metrics for scoring a trajectory against known
+experimental time. All of them are sign-conventional, so before scoring we
+orient pseudotime with `orient_pseudotime_to_time()`; otherwise a trajectory
+that is perfectly correct but inferred backwards would score near zero for
+the wrong reason. This is especially important for the topology-only run,
+which has no way to know which end is the start.
+
+```{r orient-pseudotime}
+pt_tata <- orient_pseudotime_to_time(
+    pseudotime = tata$cell_pseudotime,
+    timepoint = tata$sce$timepoint
+)
+
+pt_topology <- orient_pseudotime_to_time(
+    pseudotime = tata_topology$cell_pseudotime,
+    timepoint = tata_topology$sce$timepoint
 )
 ```
 
-```{r eval = run_tata_demo}
+**Local temporal order.** `local_temporal_order_metrics()` walks every edge
+of the cell--cell graph and asks whether pseudotime and experimental time
+move in the same direction. It is a strictly local measure, so it is not
+fooled by a trajectory that is globally monotone but locally scrambled.
+
+```{r benchmark-local-order}
+local_tata <- local_temporal_order_metrics(
+    pseudotime = pt_tata,
+    adjacency = tata$adjacency_matrix,
+    timepoint = tata$sce$timepoint
+)
+
+local_topology <- local_temporal_order_metrics(
+    pseudotime = pt_topology,
+    adjacency = tata_topology$adjacency_matrix,
+    timepoint = tata_topology$sce$timepoint
+)
+
+rbind(TATA = local_tata, topology_only = local_topology)
+```
+
+**Adjacent-timepoint AUC.** `adjacent_timepoint_auc()` asks a rank question:
+given a cell from time *t* and a cell from the next sampled time *t + 1*,
+how often does pseudotime put them in the right order? Because it compares
+only adjacent times, it is not inflated by the easy 0 h versus 120 h
+contrast. Passing `group` computes it within each drug arm first, which
+prevents a between-arm offset from masquerading as temporal accuracy.
+
+```{r benchmark-adjacent-auc}
+auc_tata <- adjacent_timepoint_auc(
+    pseudotime = pt_tata,
+    timepoint = tata$sce$timepoint,
+    group = tata$sce$condition
+)
+
+auc_topology <- adjacent_timepoint_auc(
+    pseudotime = pt_topology,
+    timepoint = tata_topology$sce$timepoint,
+    group = tata_topology$sce$condition
+)
+
+rbind(TATA = auc_tata$summary, topology_only = auc_topology$summary)
+```
+
+The per-pair table shows which time intervals are actually hard:
+
+```{r benchmark-auc-pairs}
+head(auc_tata$pair_table)
+```
+
+**Directed reachability.** `directed_reachability_concordance()` moves up to
+the abstract graph. For every pair of clusters separated by at least one
+sampling interval, it checks whether the earlier cluster can reach the later
+one in the directed graph but not vice versa. A score of 0.5 means the graph
+is effectively undirected for those pairs — which is exactly what a
+topology-only run produces, since it has no basis for orienting anything.
+
+```{r benchmark-reachability}
+reach_tata <- directed_reachability_concordance(
+    cluster_graph = tata$cluster_graph,
+    clusters = tata$sce$tata_cluster,
+    timepoint = tata$sce$timepoint,
+    min_time_gap = 24
+)
+
+reach_tata$summary
+head(reach_tata$pair_table)
+```
+
+**Anti-causal edge mass.** `anticausal_edge_mass()` is the sharpest
+diagnostic for a real dataset because it needs no pseudotime at all. It sums
+the weight of directed edges that point backwards in median cluster time,
+beyond a tolerance that absorbs sampling jitter. A large anti-causal mass
+means the abstract graph is asserting transitions that the experiment
+contradicts.
+
+```{r benchmark-anticausal}
+anticausal_tata <- anticausal_edge_mass(
+    cluster_graph = tata$cluster_graph,
+    clusters = tata$sce$tata_cluster,
+    timepoint = tata$sce$timepoint,
+    tolerance = 24
+)
+
+anticausal_tata$summary
+```
+
+```{r benchmark-anticausal-edges}
+head(
+    anticausal_tata$edge_table[
+        order(anticausal_tata$edge_table$time_delta),
+        c("from", "to", "weight", "time_delta", "temporal_class")
+    ]
+)
+```
+
+**Branch onset ordering.** `branch_onset_metrics()` is the metric closest to
+the biological question. Each arm of the simulation commits at a known hour
+(A at 24 h, C at 48 h, B at 96 h), so we can ask whether the inferred
+pseudotime recovers that *ordering of commitment events*, not just the
+overall time axis. This is where topology-only inference usually fails: it
+can produce a plausible-looking tree in which the late-diverging arm appears
+to branch first.
+
+```{r benchmark-branch-onset}
+true_onset <- c(drug_A = 24, drug_B = 96, drug_C = 48)
+
+onset_tata <- branch_onset_metrics(
+    pseudotime = pt_tata,
+    branch = tata$sce$simulated_branch,
+    branch_activation = tata$sce$branch_activation,
+    true_onset = true_onset
+)
+
+onset_topology <- branch_onset_metrics(
+    pseudotime = pt_topology,
+    branch = tata_topology$sce$simulated_branch,
+    branch_activation = tata_topology$sce$branch_activation,
+    true_onset = true_onset
+)
+
+rbind(TATA = onset_tata$summary, topology_only = onset_topology$summary)
+```
+
+```{r benchmark-onset-table}
+onset_tata$onset_table
+```
+
+## Calibration and causality plots
+
+`plot_tata_time_calibration()` is the visual counterpart of the AUC metric:
+pseudotime should rise monotonically with experimental time, and it should
+do so with a similar slope in every drug arm. Systematic differences between
+arms indicate that pseudotime is partly encoding treatment identity rather
+than progression.
+
+```{r plot-calibration-tata}
 plot_tata_time_calibration(
-  tata,
-  branch_col = "condition",
-  summary = "median_iqr"
+    tata,
+    branch_col = "condition",
+    summary = "median_iqr"
 )
 ```
 
-```{r eval = run_tata_demo}
+```{r plot-calibration-topology}
 plot_tata_time_calibration(
-  tata_topology,
-  time_col = "timepoint",
-  branch_col = "condition",
-  summary = "median_iqr"
+    tata_topology,
+    time_col = "timepoint",
+    branch_col = "condition",
+    summary = "median_iqr"
 )
 ```
 
-```{r eval = run_tata_demo}
+`plot_tata_edge_causality()` redraws the topology-versus-time plane for the
+final graph, marking which edges were kept. Edges in the upper right are
+both structurally strong and temporally forward — those are the transitions
+you can defend.
+
+```{r plot-edge-causality}
 plot_tata_edge_causality(tata)
 ```
 
-## Branch probabilities and plasticity
+# Branch probabilities and plasticity
 
-TATA now adds a Palantir-style downstream layer on top of the abstract graph:
+On top of the abstract graph, TATA adds a Palantir-style absorbing-Markov
+layer. Terminal clusters are identified from the directed graph, and every
+cluster and cell receives a probability of ending up in each terminal state.
+`compute_tata_branch_probabilities()` computes this directly; `run_tata()`
+calls it for you when `do_branch_probs = TRUE`.
 
-- terminal-branch probabilities for each cluster and cell
-- a branch-entropy score that measures how committed or ambiguous each cell is
-- a hard branch assignment for convenient downstream selection
+```{r branch-probabilities}
+branch_result <- compute_tata_branch_probabilities(
+    tata_result = tata,
+    expected_branches = 3
+)
 
-Inspect the inferred terminal branches:
+branch_result$terminal_clusters
+```
 
-```{r eval = run_tata_demo}
-tata$terminal_clusters
+Three quantities are derived from the probability vector of each cell:
+
+* **entropy** — a normalised Shannon entropy over the terminal
+  probabilities. High entropy means the cell has not committed; this is the
+  operational definition of *plasticity* here.
+* **max probability / commitment** — how strongly the cell favours its most
+  likely fate.
+* **assignment** — a hard label, useful for subsetting, that should be
+  treated as a summary of the probabilities rather than a ground truth.
+
+```{r cluster-branch-table}
+prob_cols <- grep(
+    "^tata_prob_",
+    colnames(tata$cluster_branch_probabilities),
+    value = TRUE
+)
 
 head(
-  tata$cluster_branch_probabilities[
-    ,
-    c(
-      "cluster",
-      grep("^tata_prob_", colnames(tata$cluster_branch_probabilities), value = TRUE),
-      "tata_branch_entropy",
-      "tata_branch_assignment"
-    )
-  ]
+    tata$cluster_branch_probabilities[
+        ,
+        c("cluster", prob_cols, "tata_branch_entropy",
+          "tata_branch_assignment")
+    ]
 )
 ```
 
-The entropy score highlights ambiguous cells, while the hard assignment provides
-a simple branch label:
+Entropy is highest in the shared founder population and near the branch
+points, and drops as cells commit:
 
-```{r eval = run_tata_demo}
-PlotReduction(sce_tata, reduction = "UMAP", colour_by = "tata_branch_entropy")
-PlotReduction(sce_tata, reduction = "UMAP", colour_by = "tata_branch_assignment")
+```{r plot-branch-entropy}
+PlotReduction(
+    sce_tata,
+    reduction = "UMAP",
+    colour_by = "tata_branch_entropy"
+)
 ```
 
-To view the full branch-probability landscape, plot one panel per terminal
-branch:
+```{r plot-branch-assignment}
+PlotReduction(
+    sce_tata,
+    reduction = "UMAP",
+    colour_by = "tata_branch_assignment"
+)
+```
 
-```{r eval = run_tata_demo}
+One panel per terminal branch gives the full probability landscape:
+
+```{r plot-branch-probabilities}
 plot_tata_branch_probabilities(
-  tata,
-  dimred = "UMAP",
-  ncol = 2
+    tata,
+    dimred = "UMAP",
+    ncol = 2
 )
 ```
 
-## Branch selection and representative cells
+## Selecting the cells of one lineage
 
-The branch-selection helper is useful when you want to isolate the cells most
-compatible with one lineage.
+`select_tata_branch_cells()` isolates the cells compatible with a single
+fate. The `"soft"` mode thresholds the branch probability and therefore
+includes uncommitted progenitors that are *en route* to that fate — usually
+what you want when looking for early drivers. The `"hard"` mode uses the
+winner-take-all assignment and gives a cleaner but smaller set.
 
-```{r eval = run_tata_demo}
+```{r select-branch-cells}
 branch_one <- tata$terminal_clusters[1]
 
-branch_one_cells <- select_tata_branch_cells(
-  tata,
-  branch = branch_one,
-  selection_mode = "soft",
-  probability_threshold = 0.60
+soft_selection <- select_tata_branch_cells(
+    tata,
+    branch = branch_one,
+    selection_mode = "soft",
+    probability_threshold = 0.60
 )
 
-head(branch_one_cells)
-sum(branch_one_cells$selected)
+hard_selection <- select_tata_branch_cells(
+    tata,
+    branch = branch_one,
+    selection_mode = "hard"
+)
+
+c(
+    branch = branch_one,
+    soft = sum(soft_selection$selected),
+    hard = sum(hard_selection$selected)
+)
 ```
 
-```{r eval = run_tata_demo}
+```{r plot-branch-selection}
 plot_tata_branch_selection(
-  tata,
-  branch = branch_one,
-  dimred = "UMAP",
-  selection_mode = "soft",
-  probability_threshold = 0.60
+    tata,
+    branch = branch_one,
+    dimred = "UMAP",
+    selection_mode = "soft",
+    probability_threshold = 0.60
 )
 ```
 
-It is also helpful to inspect a few representative cells directly:
+`plot_tata_terminal_probabilities()` shows the fate profile of individual
+cells, defaulting to the most ambiguous ones. Flat bars are undecided cells;
+a single tall bar is a committed cell.
 
-```{r eval = run_tata_demo}
+```{r plot-terminal-probabilities}
 plot_tata_terminal_probabilities(
-  tata,
-  n_cells = 4
+    tata,
+    n_cells = 4
 )
 ```
 
-On this simulated dataset we can also compare the inferred hard branch labels
-against the known branch identities.
+Because this is a simulation, the hard assignments can be compared against
+the known arm of origin. Off-diagonal mass is concentrated in the founder
+population, whose cells legitimately have no single fate.
 
-```{r eval = run_tata_demo}
+```{r plot-branch-confusion}
 plot_tata_branch_confusion(
-  tata,
-  truth_col = "condition",
-  predicted_col = "tata_branch_assignment",
-  normalize = "truth"
+    tata,
+    truth_col = "simulated_branch",
+    predicted_col = "tata_branch_assignment",
+    normalize = "truth"
 )
 ```
 
-## Branch-specific gene trends
+# Branch-specific gene trends
 
-Once TATA has pseudotime and branch probabilities, we can fit branch-specific
-gene-expression trends. For the simulation, we use genes from branch-associated
-feature modules stored in `rowData(sce)$feature_module`.
+With pseudotime and branch probabilities in hand, expression can be modelled
+along each lineage separately. `compute_tata_gene_trends()` fits a smooth
+trend of expression against pseudotime for each gene and branch, weighting
+each cell by its probability of belonging to that branch, so progenitors
+contribute to every branch and committed cells contribute to one.
 
-```{r eval = run_tata_demo}
-feature_modules <- SummarizedExperiment::rowData(sce_tata)$feature_module
+We pick genes from the simulation's branch-specific and late feature modules
+recorded in `rowData()`.
+
+```{r select-trend-genes}
+feature_modules <- rowData(sce_tata)$feature_module
 
 trend_genes <- unique(c(
-  rownames(sce_tata)[feature_modules == "branch_A"][1:2],
-  rownames(sce_tata)[feature_modules == "branch_B"][1:2],
-  rownames(sce_tata)[feature_modules == "branch_C"][1:2],
-  rownames(sce_tata)[feature_modules == "condition"][1:2]
+    rownames(sce_tata)[feature_modules == "branch_A"][1:2],
+    rownames(sce_tata)[feature_modules == "branch_B"][1:2],
+    rownames(sce_tata)[feature_modules == "branch_C"][1:2],
+    rownames(sce_tata)[feature_modules == "late"][1:2]
 ))
 
 trend_genes
 ```
 
-```{r eval = run_tata_demo}
+```{r compute-gene-trends}
 tata_trends <- compute_tata_gene_trends(
-  tata,
-  genes = trend_genes
+    tata,
+    genes = trend_genes,
+    grid_length = 60
 )
 
+tata_trends$branches
 head(tata_trends$trend_table)
 ```
 
-```{r eval = run_tata_demo}
+A branch-specific gene should rise in one panel line and stay flat in the
+others; a shared late gene should rise in all of them together. That
+contrast is the readout you are after.
+
+```{r plot-gene-trends}
 plot_tata_gene_trends(
-  tata_trends,
-  ncol = 3
+    tata_trends,
+    ncol = 3
 )
 ```
 
-The fitted trends can also be clustered by shape and shown as a heatmap:
+Trends can also be grouped by shape. `cluster_tata_gene_trends()` z-scores
+each gene-branch curve and runs k-means on it, which is a quick way to find
+programmes that switch on at the same point in pseudotime. It uses
+`stats::kmeans()`, so set a seed for reproducibility.
 
-```{r eval = run_tata_demo}
+```{r cluster-gene-trends}
+set.seed(101)
+
 trend_clusters <- cluster_tata_gene_trends(
-  tata_trends,
-  n_clusters = 3,
-  seed = 101
+    tata_trends,
+    n_clusters = 3
 )
 
 trend_clusters
 ```
 
-```{r eval = run_tata_demo}
+```{r plot-gene-trend-heatmap}
+set.seed(101)
+
 plot_tata_gene_trend_heatmap(
-  tata_trends,
-  n_clusters = 3
+    tata_trends,
+    scale_rows = TRUE,
+    n_clusters = 3
 )
 ```
 
-## Compact TATA result overview
+# Compact result overview
 
-`plot_tata_results()` bundles the most common summary views into a named list of
-plots so you can quickly inspect pseudotime, entropy, branch probabilities, and
-representative-cell fate profiles.
+`plot_tata_results()` bundles the summary views into a named list of
+`ggplot2` objects, which is convenient when you want to skim a new dataset
+before deciding what to look at closely.
 
-```{r eval = run_tata_demo}
+```{r tata-overview}
 tata_overview <- plot_tata_results(
-  tata,
-  dimred = "UMAP",
-  n_probability_cells = 4
+    tata,
+    dimred = "UMAP",
+    n_probability_cells = 4
 )
 
 names(tata_overview)
 ```
 
-```{r eval = run_tata_demo}
+```{r plot-overview-pseudotime}
 tata_overview$pseudotime
-tata_overview$entropy
-tata_overview$time_calibration
-tata_overview$edge_causality
-tata_overview$branch_probabilities
-tata_overview$representative_cells
 ```
 
-## Notes
+```{r plot-overview-entropy}
+tata_overview$entropy
+```
 
-- `build_knn_graph()`, `compute_topology_weights()`, and
-  `compute_time_weights()` are available separately for manual inspection and
-  method development.
-- `plot_tata_cluster_graph()` places the abstract graph either in a graph-only
-  layout or directly on top of a chosen embedding.
-- `plot_tata_trajectory_embedding()` is useful when you want a simpler
-  trajectory-style overlay rather than the full abstract graph.
-- `compute_tata_branch_probabilities()` adds terminal-branch probabilities,
-  entropy/plasticity, and hard branch assignments to TATA results.
-- `compute_tata_gene_trends()` uses TATA pseudotime and branch probabilities to
-  fit branch-specific expression trends for downstream interpretation.
-- `plot_tata_results()` provides a compact overview of the key TATA outputs.
+```{r plot-overview-calibration}
+tata_overview$time_calibration
+```
+
+```{r plot-overview-branch-probabilities}
+tata_overview$branch_probabilities
+```
+
+# Practical guidance
+
+* **Choose `k` for the number of cells, not out of habit.** Very small `k`
+  fragments the graph and produces clusters that span a single time point,
+  which destroys the time signal that TATA depends on.
+* **`direction_threshold` controls how confident you require a direction to
+  be.** Raising it leaves more edges undirected, which is preferable to
+  asserting a transition the sampling design cannot support.
+* **Check `anticausal_edge_mass()` on every real dataset.** It requires no
+  ground truth and no pseudotime, and a non-trivial anti-causal fraction is
+  a reliable sign that the clustering or the neighbourhood size needs
+  revisiting.
+* **Treat branch assignments as summaries.** The probabilities and the
+  entropy carry the information; the hard label discards it. For
+  differential expression, prefer soft selection or use the probability as a
+  covariate.
+* **Time labels must be comparable across conditions.** TATA assumes the
+  sampling times mean the same thing in every arm, which is true of a
+  designed time course but not of pooled datasets with different schedules.
+
+# Further reading
+
+* Robinson MD, McCarthy DJ, Smyth GK (2010). edgeR: a Bioconductor package
+  for differential expression analysis of digital gene expression data.
+  *Bioinformatics* 26, 139--140.
+  <https://bioconductor.org/packages/edgeR/>
+* Haghverdi L, Lun ATL, Morgan MD, Marioni JC (2018). Batch effects in
+  single-cell RNA-sequencing data are corrected by matching mutual nearest
+  neighbors. *Nature Biotechnology* 36, 421--427. Implemented in
+  `r BiocStyle::Biocpkg("batchelor")`.
+* Korsunsky I *et al.* (2019). Fast, sensitive and accurate integration of
+  single-cell data with Harmony. *Nature Methods* 16, 1289--1296.
+* Luecken MD *et al.* (2022). Benchmarking atlas-level data integration in
+  single-cell genomics (scIB). *Nature Methods* 19, 41--50. The integration
+  metrics in `BenchmarkIntegration()` follow this benchmark.
+* Wolf FA *et al.* (2019). PAGA: graph abstraction reconciles clustering
+  with trajectory inference. *Genome Biology* 20, 59. TATA's abstract
+  cluster graph follows this design.
+* Setty M *et al.* (2019). Characterization of cell fate probabilities in
+  single-cell data with Palantir. *Nature Biotechnology* 37, 451--460. The
+  source of the absorbing-Markov branch-probability layer.
+* McInnes L, Healy J, Melville J (2018). UMAP: Uniform Manifold
+  Approximation and Projection for dimension reduction.
+  <https://arxiv.org/abs/1802.03426>. Available in R via
+  `r BiocStyle::CRANpkg("uwot")`.
+* Amezquita RA *et al.* (2020). Orchestrating single-cell analysis with
+  Bioconductor. *Nature Methods* 17, 137--145.
+  <https://bioconductor.org/books/release/OSCA/>
+
+# Session information
+
+```{r session-info}
+sessionInfo()
+```

@@ -21,42 +21,46 @@ build_knn_graph <- function(
     x,
     dimred = "PCA",
     dims = NULL,
-    k = 15) {
-  embedding <- .get_embedding_matrix(x, dimred = dimred, dims = dims)
-  k <- max(1, min(as.integer(k), nrow(embedding) - 1L))
-  knn <- .compute_knn(embedding, k = k)
+    k = 15
+) {
+    embedding <- .get_embedding_matrix(x, dimred = dimred, dims = dims)
+    k <- max(1, min(as.integer(k), nrow(embedding) - 1L))
+    knn <- .compute_knn(embedding, k = k)
 
-  edge_i <- rep(seq_len(nrow(embedding)), each = k)
-  edge_j <- as.vector(t(knn$nn.index))
+    edge_i <- rep(seq_len(nrow(embedding)), each = k)
+    edge_j <- as.vector(t(knn$nn.index))
 
-  adjacency <- Matrix::sparseMatrix(
-    i = edge_i,
-    j = edge_j,
-    x = 1,
-    dims = c(nrow(embedding), nrow(embedding)),
-    dimnames = list(rownames(embedding), rownames(embedding))
-  )
+    adjacency <- Matrix::sparseMatrix(
+        i = edge_i,
+        j = edge_j,
+        x = 1,
+        dims = c(nrow(embedding), nrow(embedding)),
+        dimnames = list(rownames(embedding), rownames(embedding))
+    )
 
-  adjacency <- adjacency + Matrix::t(adjacency)
-  adjacency@x[] <- 1
-  diag(adjacency) <- 0
-  adjacency <- Matrix::drop0(adjacency)
+    ## Symmetrise, then binarise. Summing the matrix with its transpose gives a
+    ## weight of 2 to mutual neighbours, so collapse every non-zero entry to 1
+    ## rather than reaching into the Matrix object's slots.
+    adjacency <- adjacency + Matrix::t(adjacency)
+    adjacency <- methods::as(adjacency > 0, "dMatrix")
+    diag(adjacency) <- 0
+    adjacency <- Matrix::drop0(adjacency)
 
-  cell_graph <- igraph::graph_from_adjacency_matrix(
-    adjacency,
-    mode = "undirected",
-    diag = FALSE
-  )
+    cell_graph <- igraph::graph_from_adjacency_matrix(
+        adjacency,
+        mode = "undirected",
+        diag = FALSE
+    )
 
-  list(
-    graph = cell_graph,
-    adjacency = adjacency,
-    embedding = embedding,
-    knn_index = knn$nn.index,
-    knn_distance = knn$nn.dist,
-    k = k,
-    knn_engine = knn$engine
-  )
+    list(
+        graph = cell_graph,
+        adjacency = adjacency,
+        embedding = embedding,
+        knn_index = knn$nn.index,
+        knn_distance = knn$nn.dist,
+        k = k,
+        knn_engine = knn$engine
+    )
 }
 
 
@@ -81,29 +85,30 @@ build_knn_graph <- function(
 #' table(clusters)
 cluster_graph_states <- function(
     cell_graph,
-    method = c("louvain", "leiden", "walktrap")) {
-  method <- match.arg(method)
+    method = c("louvain", "leiden", "walktrap")
+) {
+    method <- match.arg(method)
 
-  if (!inherits(cell_graph, "igraph")) {
-    stop("`cell_graph` must be an igraph object.", call. = FALSE)
-  }
-
-  if (igraph::ecount(cell_graph) == 0L) {
-    membership <- rep(1L, igraph::vcount(cell_graph))
-  } else if (method == "leiden") {
-    if ("cluster_leiden" %in% getNamespaceExports("igraph")) {
-      membership <- igraph::membership(igraph::cluster_leiden(cell_graph))
-    } else {
-      warning("`cluster_leiden()` is not available; falling back to Louvain.", call. = FALSE)
-      membership <- igraph::membership(igraph::cluster_louvain(cell_graph))
+    if (!inherits(cell_graph, "igraph")) {
+        stop("`cell_graph` must be an igraph object.", call. = FALSE)
     }
-  } else if (method == "walktrap") {
-    membership <- igraph::membership(igraph::cluster_walktrap(cell_graph))
-  } else {
-    membership <- igraph::membership(igraph::cluster_louvain(cell_graph))
-  }
 
-  membership_levels <- sort(unique(membership))
-  cluster_labels <- paste0("C", match(membership, membership_levels))
-  factor(cluster_labels, levels = paste0("C", seq_along(membership_levels)))
+    if (igraph::ecount(cell_graph) == 0L) {
+        membership <- rep(1L, igraph::vcount(cell_graph))
+    } else if (method == "leiden") {
+        if ("cluster_leiden" %in% getNamespaceExports("igraph")) {
+            membership <- igraph::membership(igraph::cluster_leiden(cell_graph))
+        } else {
+            warning("`cluster_leiden()` is not available; falling back to Louvain.", call. = FALSE)
+            membership <- igraph::membership(igraph::cluster_louvain(cell_graph))
+        }
+    } else if (method == "walktrap") {
+        membership <- igraph::membership(igraph::cluster_walktrap(cell_graph))
+    } else {
+        membership <- igraph::membership(igraph::cluster_louvain(cell_graph))
+    }
+
+    membership_levels <- sort(unique(membership))
+    cluster_labels <- paste0("C", match(membership, membership_levels))
+    factor(cluster_labels, levels = paste0("C", seq_along(membership_levels)))
 }

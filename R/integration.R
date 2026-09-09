@@ -55,70 +55,70 @@ IntegrateBacData <- function(
     integrated_name = NULL,
     ...
 ) {
-  method <- match.arg(method)
-  feature_set <- match.arg(feature_set)
-  .scprokar_match_columns(sce, batch_col, label = "batch")
+    method <- match.arg(method)
+    feature_set <- match.arg(feature_set)
+    .scprokar_match_columns(sce, batch_col, label = "batch")
 
-  sce <- .scprokar_prepare_reduction(
-    sce,
-    assay_name = assay_name,
-    feature_set = feature_set,
-    dims = dims,
-    reduction_name = "PCA"
-  )
-
-  if (is.null(integrated_name)) {
-    integrated_name <- paste0("integrated_", method)
-  }
-
-  batch <- as.factor(SummarizedExperiment::colData(sce)[[batch_col]])
-  features <- .scprokar_select_features(sce, feature_set = feature_set)
-
-  if (method == "mnn") {
-    .scprokar_require("batchelor", "MNN integration")
-    split_idx <- split(seq_len(ncol(sce)), batch)
-    split_sce <- lapply(split_idx, function(idx) sce[, idx, drop = FALSE])
-    mnn_args <- list(...)
-    min_batch_cells <- min(vapply(split_idx, length, integer(1)))
-    if (!"k" %in% names(mnn_args)) {
-      mnn_args$k <- max(1L, min(20L, min_batch_cells - 1L))
-    }
-    if (!"BSPARAM" %in% names(mnn_args) && requireNamespace("BiocSingular", quietly = TRUE)) {
-      mnn_args$BSPARAM <- BiocSingular::ExactParam()
-    }
-    corrected <- do.call(
-      batchelor::fastMNN,
-      c(split_sce, list(subset.row = features, d = max(dims)), mnn_args)
+    sce <- .scprokar_prepare_reduction(
+        sce,
+        assay_name = assay_name,
+        feature_set = feature_set,
+        dims = dims,
+        reduction_name = "PCA"
     )
-    embedding <- SingleCellExperiment::reducedDim(corrected, "corrected")[, dims, drop = FALSE]
-    rownames(embedding) <- colnames(corrected)
-    embedding <- embedding[colnames(sce), , drop = FALSE]
-  } else if (method == "harmony") {
-    .scprokar_require("harmony", "Harmony integration")
-    embedding <- .scprokar_run_harmony(
-      SingleCellExperiment::reducedDim(sce, "PCA")[, dims, drop = FALSE],
-      meta_data = as.data.frame(SummarizedExperiment::colData(sce)),
-      batch_col = batch_col,
-      ...
+
+    if (is.null(integrated_name)) {
+        integrated_name <- paste0("integrated_", method)
+    }
+
+    batch <- as.factor(SummarizedExperiment::colData(sce)[[batch_col]])
+    features <- .scprokar_select_features(sce, feature_set = feature_set)
+
+    if (method == "mnn") {
+        .scprokar_require("batchelor", "MNN integration")
+        split_idx <- split(seq_len(ncol(sce)), batch)
+        split_sce <- lapply(split_idx, function(idx) sce[, idx, drop = FALSE])
+        mnn_args <- list(...)
+        min_batch_cells <- min(vapply(split_idx, length, integer(1)))
+        if (!"k" %in% names(mnn_args)) {
+            mnn_args$k <- max(1L, min(20L, min_batch_cells - 1L))
+        }
+        if (!"BSPARAM" %in% names(mnn_args) && requireNamespace("BiocSingular", quietly = TRUE)) {
+            mnn_args$BSPARAM <- BiocSingular::ExactParam()
+        }
+        corrected <- do.call(
+            batchelor::fastMNN,
+            c(split_sce, list(subset.row = features, d = max(dims)), mnn_args)
+        )
+        embedding <- SingleCellExperiment::reducedDim(corrected, "corrected")[, dims, drop = FALSE]
+        rownames(embedding) <- colnames(corrected)
+        embedding <- embedding[colnames(sce), , drop = FALSE]
+    } else if (method == "harmony") {
+        .scprokar_require("harmony", "Harmony integration")
+        embedding <- .scprokar_run_harmony(
+            SingleCellExperiment::reducedDim(sce, "PCA")[, dims, drop = FALSE],
+            meta_data = as.data.frame(SummarizedExperiment::colData(sce)),
+            batch_col = batch_col,
+            ...
+        )
+    }
+
+    rownames(embedding) <- colnames(sce)
+    colnames(embedding) <- paste0(toupper(method), "_", seq_len(ncol(embedding)))
+    SingleCellExperiment::reducedDim(sce, integrated_name) <- embedding
+
+    meta <- .scprokar_get_metadata(sce)
+    if (is.null(meta$integration)) {
+        meta$integration <- list(results = list())
+    }
+    meta$integration$results[[method]] <- list(
+        reduction = integrated_name,
+        batch_col = batch_col,
+        dims = dims,
+        feature_set = feature_set,
+        n_features = length(features)
     )
-  }
-
-  rownames(embedding) <- colnames(sce)
-  colnames(embedding) <- paste0(toupper(method), "_", seq_len(ncol(embedding)))
-  SingleCellExperiment::reducedDim(sce, integrated_name) <- embedding
-
-  meta <- .scprokar_get_metadata(sce)
-  if (is.null(meta$integration)) {
-    meta$integration <- list(results = list())
-  }
-  meta$integration$results[[method]] <- list(
-    reduction = integrated_name,
-    batch_col = batch_col,
-    dims = dims,
-    feature_set = feature_set,
-    n_features = length(features)
-  )
-  .scprokar_set_metadata(sce, meta)
+    .scprokar_set_metadata(sce, meta)
 }
 
 #' Run UMAP on an existing embedding
@@ -162,48 +162,48 @@ RunIntegratedUMAP <- function(
     metric = "cosine",
     ...
 ) {
-  .scprokar_require("uwot", "RunIntegratedUMAP()")
+    .scprokar_require("uwot", "RunIntegratedUMAP()")
 
-  reduction_name <- .scprokar_resolve_reduction_name(sce, reduction)
-  emb <- as.matrix(SingleCellExperiment::reducedDim(sce, reduction_name))
-  if (ncol(emb) < 2) {
-    stop("Reduction '", reduction_name, "' must have at least two columns to run UMAP.", call. = FALSE)
-  }
-  if (nrow(emb) < 3) {
-    stop("Need at least 3 cells to run UMAP on reduction '", reduction_name, "'.", call. = FALSE)
-  }
+    reduction_name <- .scprokar_resolve_reduction_name(sce, reduction)
+    emb <- as.matrix(SingleCellExperiment::reducedDim(sce, reduction_name))
+    if (ncol(emb) < 2) {
+        stop("Reduction '", reduction_name, "' must have at least two columns to run UMAP.", call. = FALSE)
+    }
+    if (nrow(emb) < 3) {
+        stop("Need at least 3 cells to run UMAP on reduction '", reduction_name, "'.", call. = FALSE)
+    }
 
-  if (is.null(umap_name)) {
-    umap_name <- paste0("umap_", reduction_name)
-  }
-  n_neighbors <- min(n_neighbors, nrow(emb) - 1L)
+    if (is.null(umap_name)) {
+        umap_name <- paste0("umap_", reduction_name)
+    }
+    n_neighbors <- min(n_neighbors, nrow(emb) - 1L)
 
-  umap <- uwot::umap(
-    emb,
-    n_neighbors = n_neighbors,
-    min_dist = min_dist,
-    metric = metric,
-    verbose = FALSE,
-    ...
-  )
-  rownames(umap) <- colnames(sce)
-  colnames(umap) <- c("UMAP_1", "UMAP_2")
-  SingleCellExperiment::reducedDim(sce, umap_name) <- umap
-
-  meta <- .scprokar_get_metadata(sce)
-  meta$visualization <- c(
-    meta$visualization,
-    list(
-      last_umap = list(
-        input_reduction = reduction_name,
-        output_reduction = umap_name,
+    umap <- uwot::umap(
+        emb,
         n_neighbors = n_neighbors,
         min_dist = min_dist,
-        metric = metric
-      )
+        metric = metric,
+        verbose = FALSE,
+        ...
     )
-  )
-  .scprokar_set_metadata(sce, meta)
+    rownames(umap) <- colnames(sce)
+    colnames(umap) <- c("UMAP_1", "UMAP_2")
+    SingleCellExperiment::reducedDim(sce, umap_name) <- umap
+
+    meta <- .scprokar_get_metadata(sce)
+    meta$visualization <- c(
+        meta$visualization,
+        list(
+            last_umap = list(
+                input_reduction = reduction_name,
+                output_reduction = umap_name,
+                n_neighbors = n_neighbors,
+                min_dist = min_dist,
+                metric = metric
+            )
+        )
+    )
+    .scprokar_set_metadata(sce, meta)
 }
 
 #' Cluster cells on an integrated embedding
@@ -251,75 +251,75 @@ RunIntegratedClustering <- function(
     algorithm = c("louvain", "walktrap", "leiden"),
     resolution = 0.8
 ) {
-  .scprokar_require("igraph", "RunIntegratedClustering()")
-  algorithm <- match.arg(algorithm)
+    .scprokar_require("igraph", "RunIntegratedClustering()")
+    algorithm <- match.arg(algorithm)
 
-  reduction_name <- .scprokar_default_integration_reduction(
-    sce,
-    integrated_reduction = reduction,
-    prefer_umap = FALSE
-  )
-  emb <- as.matrix(SingleCellExperiment::reducedDim(sce, reduction_name))
-  if (!is.null(dims)) {
-    emb <- emb[, dims, drop = FALSE]
-  }
-  if (nrow(emb) < 2L) {
-    stop("Need at least two cells to run clustering.", call. = FALSE)
-  }
-  if (ncol(emb) < 2L) {
-    stop("Integrated reduction '", reduction_name, "' must have at least two dimensions.", call. = FALSE)
-  }
-
-  k <- max(1L, min(as.integer(k), nrow(emb) - 1L))
-  graph_data <- .scprokar_build_cluster_graph(emb, k = k)
-  graph <- graph_data$graph
-
-  membership <- if (igraph::gsize(graph) == 0L) {
-    rep(1L, nrow(emb))
-  } else if (algorithm == "louvain") {
-    cluster_args <- list(graph, weights = igraph::E(graph)$weight)
-    if ("resolution" %in% names(formals(igraph::cluster_louvain))) {
-      cluster_args$resolution <- resolution
+    reduction_name <- .scprokar_default_integration_reduction(
+        sce,
+        integrated_reduction = reduction,
+        prefer_umap = FALSE
+    )
+    emb <- as.matrix(SingleCellExperiment::reducedDim(sce, reduction_name))
+    if (!is.null(dims)) {
+        emb <- emb[, dims, drop = FALSE]
     }
-    igraph::membership(do.call(igraph::cluster_louvain, cluster_args))
-  } else if (algorithm == "leiden") {
-    if (!"cluster_leiden" %in% getNamespaceExports("igraph")) {
-      stop(
-        "The installed igraph does not provide `cluster_leiden()`. ",
-        "Use `algorithm = \"louvain\"` or upgrade igraph.",
-        call. = FALSE
-      )
+    if (nrow(emb) < 2L) {
+        stop("Need at least two cells to run clustering.", call. = FALSE)
     }
-    cluster_args <- list(graph, weights = igraph::E(graph)$weight)
-    leiden_formals <- names(formals(get("cluster_leiden", envir = asNamespace("igraph"))))
-    if ("resolution_parameter" %in% leiden_formals) {
-      cluster_args$resolution_parameter <- resolution
-    } else if ("resolution" %in% leiden_formals) {
-      cluster_args$resolution <- resolution
+    if (ncol(emb) < 2L) {
+        stop("Integrated reduction '", reduction_name, "' must have at least two dimensions.", call. = FALSE)
     }
-    igraph::membership(do.call(igraph::cluster_leiden, cluster_args))
-  } else {
-    if (!is.null(resolution)) {
-      warning(
-        "`resolution` is ignored when `algorithm = \"walktrap\"` because walktrap does not expose a resolution parameter.",
-        call. = FALSE
-      )
-    }
-    igraph::membership(igraph::cluster_walktrap(graph, weights = igraph::E(graph)$weight))
-  }
 
-  SummarizedExperiment::colData(sce)[[cluster_col]] <- factor(membership)
+    k <- max(1L, min(as.integer(k), nrow(emb) - 1L))
+    graph_data <- .scprokar_build_cluster_graph(emb, k = k)
+    graph <- graph_data$graph
 
-  meta <- .scprokar_get_metadata(sce)
-  meta$integration$clustering <- list(
-    reduction = reduction_name,
-    cluster_col = cluster_col,
-    dims = if (is.null(dims)) seq_len(ncol(emb)) else dims,
-    k = k,
-    algorithm = algorithm,
-    resolution = resolution
-  )
-  .scprokar_set_metadata(sce, meta)
+    membership <- if (igraph::gsize(graph) == 0L) {
+        rep(1L, nrow(emb))
+    } else if (algorithm == "louvain") {
+        cluster_args <- list(graph, weights = igraph::E(graph)$weight)
+        if ("resolution" %in% names(formals(igraph::cluster_louvain))) {
+            cluster_args$resolution <- resolution
+        }
+        igraph::membership(do.call(igraph::cluster_louvain, cluster_args))
+    } else if (algorithm == "leiden") {
+        if (!"cluster_leiden" %in% getNamespaceExports("igraph")) {
+            stop(
+                "The installed igraph does not provide `cluster_leiden()`. ",
+                "Use `algorithm = \"louvain\"` or upgrade igraph.",
+                call. = FALSE
+            )
+        }
+        cluster_args <- list(graph, weights = igraph::E(graph)$weight)
+        leiden_formals <- names(formals(get("cluster_leiden", envir = asNamespace("igraph"))))
+        if ("resolution_parameter" %in% leiden_formals) {
+            cluster_args$resolution_parameter <- resolution
+        } else if ("resolution" %in% leiden_formals) {
+            cluster_args$resolution <- resolution
+        }
+        igraph::membership(do.call(igraph::cluster_leiden, cluster_args))
+    } else {
+        if (!is.null(resolution)) {
+            warning(
+                "`resolution` is ignored when `algorithm = \"walktrap\"` because walktrap does not expose a resolution parameter.",
+                call. = FALSE
+            )
+        }
+        igraph::membership(igraph::cluster_walktrap(graph, weights = igraph::E(graph)$weight))
+    }
+
+    SummarizedExperiment::colData(sce)[[cluster_col]] <- factor(membership)
+
+    meta <- .scprokar_get_metadata(sce)
+    meta$integration$clustering <- list(
+        reduction = reduction_name,
+        cluster_col = cluster_col,
+        dims = if (is.null(dims)) seq_len(ncol(emb)) else dims,
+        k = k,
+        algorithm = algorithm,
+        resolution = resolution
+    )
+    .scprokar_set_metadata(sce, meta)
 }
 
 #' Plot any stored reduced dimension
@@ -375,78 +375,78 @@ PlotReduction <- function(
     facet_by = NULL,
     shuffle = FALSE
 ) {
-  reduction_name <- .scprokar_resolve_reduction_name(sce, reduction)
-  emb <- as.matrix(SingleCellExperiment::reducedDim(sce, reduction_name))
-  if (ncol(emb) < 2) {
-    stop("Reduction '", reduction_name, "' must have at least two columns to plot.", call. = FALSE)
-  }
-
-  meta <- as.data.frame(SummarizedExperiment::colData(sce))
-  plot_df <- data.frame(
-    dim1 = emb[, 1],
-    dim2 = emb[, 2],
-    meta,
-    stringsAsFactors = FALSE
-  )
-
-  if (!is.null(colour_by)) {
-    if (!colour_by %in% colnames(plot_df)) {
-      stop("`colour_by` was not found in colData(sce): ", colour_by, call. = FALSE)
+    reduction_name <- .scprokar_resolve_reduction_name(sce, reduction)
+    emb <- as.matrix(SingleCellExperiment::reducedDim(sce, reduction_name))
+    if (ncol(emb) < 2) {
+        stop("Reduction '", reduction_name, "' must have at least two columns to plot.", call. = FALSE)
     }
-    plot_df$.colour <- plot_df[[colour_by]]
-  } else {
-    plot_df$.colour <- "cells"
-  }
 
-  if (!is.null(facet_by)) {
-    if (!facet_by %in% colnames(plot_df)) {
-      stop("`facet_by` was not found in colData(sce): ", facet_by, call. = FALSE)
-    }
-    plot_df$.facet <- plot_df[[facet_by]]
-  }
-
-  if (isTRUE(shuffle)) {
-    plot_df <- plot_df[sample(seq_len(nrow(plot_df))), , drop = FALSE]
-  }
-
-  plot <- ggplot2::ggplot(plot_df, ggplot2::aes(x = dim1, y = dim2)) +
-    ggplot2::geom_point(
-      mapping = ggplot2::aes(color = .colour),
-      size = point_size,
-      alpha = point_alpha
-    ) +
-    ggplot2::labs(
-      title = reduction_name,
-      x = colnames(emb)[1],
-      y = colnames(emb)[2],
-      color = if (is.null(colour_by)) NULL else colour_by
-    ) +
-    ggplot2::theme_classic()
-
-  if (is.null(colour_by)) {
-    plot <- plot + ggplot2::scale_color_manual(values = c(cells = "grey50"), guide = "none")
-  } else if (is.numeric(plot_df$.colour)) {
-    plot <- plot + ggplot2::scale_color_gradientn(
-      colours = if (is.null(palette)) c("#2b8cbe", "#fdbb84", "#d7301f") else palette
+    meta <- as.data.frame(SummarizedExperiment::colData(sce))
+    plot_df <- data.frame(
+        dim1 = emb[, 1],
+        dim2 = emb[, 2],
+        meta,
+        stringsAsFactors = FALSE
     )
-  } else {
-    discrete_values <- unique(as.character(plot_df$.colour))
-    colors <- if (is.null(palette)) {
-      stats::setNames(grDevices::hcl.colors(length(discrete_values), "Dark 3"), discrete_values)
+
+    if (!is.null(colour_by)) {
+        if (!colour_by %in% colnames(plot_df)) {
+            stop("`colour_by` was not found in colData(sce): ", colour_by, call. = FALSE)
+        }
+        plot_df$.colour <- plot_df[[colour_by]]
     } else {
-      if (is.null(names(palette))) {
-        names(palette) <- discrete_values[seq_len(min(length(discrete_values), length(palette)))]
-      }
-      palette[discrete_values]
+        plot_df$.colour <- "cells"
     }
-    plot <- plot + ggplot2::scale_color_manual(values = colors)
-  }
 
-  if (!is.null(facet_by)) {
-    plot <- plot + ggplot2::facet_wrap(~.facet)
-  }
+    if (!is.null(facet_by)) {
+        if (!facet_by %in% colnames(plot_df)) {
+            stop("`facet_by` was not found in colData(sce): ", facet_by, call. = FALSE)
+        }
+        plot_df$.facet <- plot_df[[facet_by]]
+    }
 
-  plot
+    if (isTRUE(shuffle)) {
+        plot_df <- plot_df[sample(seq_len(nrow(plot_df))), , drop = FALSE]
+    }
+
+    plot <- ggplot2::ggplot(plot_df, ggplot2::aes(x = dim1, y = dim2)) +
+        ggplot2::geom_point(
+            mapping = ggplot2::aes(color = .colour),
+            size = point_size,
+            alpha = point_alpha
+        ) +
+        ggplot2::labs(
+            title = reduction_name,
+            x = colnames(emb)[1],
+            y = colnames(emb)[2],
+            color = if (is.null(colour_by)) NULL else colour_by
+        ) +
+        ggplot2::theme_classic()
+
+    if (is.null(colour_by)) {
+        plot <- plot + ggplot2::scale_color_manual(values = c(cells = "grey50"), guide = "none")
+    } else if (is.numeric(plot_df$.colour)) {
+        plot <- plot + ggplot2::scale_color_gradientn(
+            colours = if (is.null(palette)) c("#2b8cbe", "#fdbb84", "#d7301f") else palette
+        )
+    } else {
+        discrete_values <- unique(as.character(plot_df$.colour))
+        colors <- if (is.null(palette)) {
+            stats::setNames(grDevices::hcl.colors(length(discrete_values), "Dark 3"), discrete_values)
+        } else {
+            if (is.null(names(palette))) {
+                names(palette) <- discrete_values[seq_len(min(length(discrete_values), length(palette)))]
+            }
+            palette[discrete_values]
+        }
+        plot <- plot + ggplot2::scale_color_manual(values = colors)
+    }
+
+    if (!is.null(facet_by)) {
+        plot <- plot + ggplot2::facet_wrap(~.facet)
+    }
+
+    plot
 }
 
 #' Plot Seurat-style integration result panels
@@ -511,71 +511,71 @@ PlotIntegrationOverview <- function(
     point_alpha = 0.8,
     shuffle = FALSE
 ) {
-  .scprokar_match_columns(sce, batch_col, label = "batch")
-  if (!is.null(label_col)) {
-    .scprokar_match_columns(sce, label_col, label = "label")
-  }
-  if (!is.null(split_by)) {
-    .scprokar_match_columns(sce, split_by, label = "split")
-  }
+    .scprokar_match_columns(sce, batch_col, label = "batch")
+    if (!is.null(label_col)) {
+        .scprokar_match_columns(sce, label_col, label = "label")
+    }
+    if (!is.null(split_by)) {
+        .scprokar_match_columns(sce, split_by, label = "split")
+    }
 
-  integrated_reduction <- .scprokar_default_integration_reduction(
-    sce,
-    integrated_reduction = integrated_reduction
-  )
-
-  plots <- list(
-    unintegrated_by_batch = PlotReduction(
-      sce,
-      reduction = unintegrated_reduction,
-      colour_by = batch_col,
-      point_size = point_size,
-      point_alpha = point_alpha,
-      shuffle = shuffle
-    ),
-    integrated_by_batch = PlotReduction(
-      sce,
-      reduction = integrated_reduction,
-      colour_by = batch_col,
-      point_size = point_size,
-      point_alpha = point_alpha,
-      shuffle = shuffle
+    integrated_reduction <- .scprokar_default_integration_reduction(
+        sce,
+        integrated_reduction = integrated_reduction
     )
-  )
 
-  if (!is.null(label_col)) {
-    plots$unintegrated_by_label <- PlotReduction(
-      sce,
-      reduction = unintegrated_reduction,
-      colour_by = label_col,
-      point_size = point_size,
-      point_alpha = point_alpha,
-      shuffle = shuffle
+    plots <- list(
+        unintegrated_by_batch = PlotReduction(
+            sce,
+            reduction = unintegrated_reduction,
+            colour_by = batch_col,
+            point_size = point_size,
+            point_alpha = point_alpha,
+            shuffle = shuffle
+        ),
+        integrated_by_batch = PlotReduction(
+            sce,
+            reduction = integrated_reduction,
+            colour_by = batch_col,
+            point_size = point_size,
+            point_alpha = point_alpha,
+            shuffle = shuffle
+        )
     )
-    plots$integrated_by_label <- PlotReduction(
-      sce,
-      reduction = integrated_reduction,
-      colour_by = label_col,
-      point_size = point_size,
-      point_alpha = point_alpha,
-      shuffle = shuffle
-    )
-  }
 
-  if (!is.null(split_by)) {
-    split_colour <- if (is.null(label_col)) batch_col else label_col
-    plots$integrated_split <- PlotReduction(
-      sce,
-      reduction = integrated_reduction,
-      colour_by = split_colour,
-      facet_by = split_by,
-      point_size = point_size,
-      point_alpha = point_alpha,
-      shuffle = shuffle
-    )
-  }
+    if (!is.null(label_col)) {
+        plots$unintegrated_by_label <- PlotReduction(
+            sce,
+            reduction = unintegrated_reduction,
+            colour_by = label_col,
+            point_size = point_size,
+            point_alpha = point_alpha,
+            shuffle = shuffle
+        )
+        plots$integrated_by_label <- PlotReduction(
+            sce,
+            reduction = integrated_reduction,
+            colour_by = label_col,
+            point_size = point_size,
+            point_alpha = point_alpha,
+            shuffle = shuffle
+        )
+    }
 
-  plots
+    if (!is.null(split_by)) {
+        split_colour <- if (is.null(label_col)) batch_col else label_col
+        plots$integrated_split <- PlotReduction(
+            sce,
+            reduction = integrated_reduction,
+            colour_by = split_colour,
+            facet_by = split_by,
+            point_size = point_size,
+            point_alpha = point_alpha,
+            shuffle = shuffle
+        )
+    }
+
+    plots
 }
 
 #' Register an external embedding for benchmarking and downstream analysis
@@ -618,115 +618,115 @@ RegisterIntegrationEmbedding <- function(
     reduction_name = NULL,
     metadata = list()
 ) {
-  if (is.null(reduction_name)) {
-    reduction_name <- paste0("integrated_", method_name)
-  }
-
-  embedding <- as.matrix(embedding)
-  if (nrow(embedding) != ncol(sce)) {
-    stop("`embedding` must have one row per cell in `sce`.", call. = FALSE)
-  }
-
-  if (!is.null(rownames(embedding))) {
-    missing_cells <- setdiff(colnames(sce), rownames(embedding))
-    if (length(missing_cells) > 0) {
-      stop("`embedding` rownames are missing cells: ", paste(missing_cells, collapse = ", "), call. = FALSE)
+    if (is.null(reduction_name)) {
+        reduction_name <- paste0("integrated_", method_name)
     }
-    embedding <- embedding[colnames(sce), , drop = FALSE]
-  } else {
-    rownames(embedding) <- colnames(sce)
-  }
 
-  SingleCellExperiment::reducedDim(sce, reduction_name) <- embedding
+    embedding <- as.matrix(embedding)
+    if (nrow(embedding) != ncol(sce)) {
+        stop("`embedding` must have one row per cell in `sce`.", call. = FALSE)
+    }
 
-  meta <- .scprokar_get_metadata(sce)
-  if (is.null(meta$integration)) {
-    meta$integration <- list(results = list())
-  }
-  meta$integration$results[[method_name]] <- c(
-    list(
-      reduction = reduction_name,
-      source = "external",
-      dims = seq_len(ncol(embedding))
-    ),
-    metadata
-  )
-  .scprokar_set_metadata(sce, meta)
+    if (!is.null(rownames(embedding))) {
+        missing_cells <- setdiff(colnames(sce), rownames(embedding))
+        if (length(missing_cells) > 0) {
+            stop("`embedding` rownames are missing cells: ", paste(missing_cells, collapse = ", "), call. = FALSE)
+        }
+        embedding <- embedding[colnames(sce), , drop = FALSE]
+    } else {
+        rownames(embedding) <- colnames(sce)
+    }
+
+    SingleCellExperiment::reducedDim(sce, reduction_name) <- embedding
+
+    meta <- .scprokar_get_metadata(sce)
+    if (is.null(meta$integration)) {
+        meta$integration <- list(results = list())
+    }
+    meta$integration$results[[method_name]] <- c(
+        list(
+            reduction = reduction_name,
+            source = "external",
+            dims = seq_len(ncol(embedding))
+        ),
+        metadata
+    )
+    .scprokar_set_metadata(sce, meta)
 }
 
 #' @keywords internal
 .scprokar_run_harmony <- function(pca_embedding, meta_data, batch_col, ...) {
-  extra <- list(...)
-  n_cells <- nrow(pca_embedding)
-  if (!"nclust" %in% names(extra)) {
-    if (n_cells <= 2L) {
-      extra$nclust <- 1L
-    } else {
-      extra$nclust <- max(2L, min(20L, n_cells - 1L))
+    extra <- list(...)
+    n_cells <- nrow(pca_embedding)
+    if (!"nclust" %in% names(extra)) {
+        if (n_cells <= 2L) {
+            extra$nclust <- 1L
+        } else {
+            extra$nclust <- max(2L, min(20L, n_cells - 1L))
+        }
     }
-  }
-  if (!"verbose" %in% names(extra)) {
-    extra$verbose <- FALSE
-  }
-
-  if ("RunHarmony" %in% getNamespaceExports("harmony")) {
-    args_new <- c(
-      list(
-        data_mat = pca_embedding,
-        meta_data = meta_data,
-        vars_use = batch_col
-      ),
-      extra
-    )
-    out <- tryCatch(
-      suppressWarnings(do.call(harmony::RunHarmony, args_new)),
-      error = function(e) NULL
-    )
-
-    if (is.null(out)) {
-      args_legacy <- c(
-        list(
-          data_mat = pca_embedding,
-          meta_data = meta_data,
-          vars_use = batch_col,
-          do_pca = FALSE
-        ),
-        extra
-      )
-      out <- tryCatch(
-        suppressWarnings(do.call(harmony::RunHarmony, args_legacy)),
-        error = function(e) NULL
-      )
+    if (!"verbose" %in% names(extra)) {
+        extra$verbose <- FALSE
     }
 
-    if (!is.null(out)) {
-      return(as.matrix(out))
-    }
-  }
+    if ("RunHarmony" %in% getNamespaceExports("harmony")) {
+        args_new <- c(
+            list(
+                data_mat = pca_embedding,
+                meta_data = meta_data,
+                vars_use = batch_col
+            ),
+            extra
+        )
+        out <- tryCatch(
+            suppressWarnings(do.call(harmony::RunHarmony, args_new)),
+            error = function(e) NULL
+        )
 
-  if ("HarmonyMatrix" %in% getNamespaceExports("harmony")) {
-    args_matrix <- c(
-      list(
-        data_mat = pca_embedding,
-        meta_data = meta_data,
-        vars_use = batch_col,
-        do_pca = FALSE
-      ),
-      extra
-    )
-    out <- tryCatch(
-      suppressWarnings(do.call(harmony::HarmonyMatrix, args_matrix)),
-      error = function(e) NULL
-    )
-    if (!is.null(out)) {
-      return(as.matrix(out))
-    }
-  }
+        if (is.null(out)) {
+            args_legacy <- c(
+                list(
+                    data_mat = pca_embedding,
+                    meta_data = meta_data,
+                    vars_use = batch_col,
+                    do_pca = FALSE
+                ),
+                extra
+            )
+            out <- tryCatch(
+                suppressWarnings(do.call(harmony::RunHarmony, args_legacy)),
+                error = function(e) NULL
+            )
+        }
 
-  stop(
-    "Harmony integration failed for this dataset. Try reducing dimensions or using method = \"mnn\".",
-    call. = FALSE
-  )
+        if (!is.null(out)) {
+            return(as.matrix(out))
+        }
+    }
+
+    if ("HarmonyMatrix" %in% getNamespaceExports("harmony")) {
+        args_matrix <- c(
+            list(
+                data_mat = pca_embedding,
+                meta_data = meta_data,
+                vars_use = batch_col,
+                do_pca = FALSE
+            ),
+            extra
+        )
+        out <- tryCatch(
+            suppressWarnings(do.call(harmony::HarmonyMatrix, args_matrix)),
+            error = function(e) NULL
+        )
+        if (!is.null(out)) {
+            return(as.matrix(out))
+        }
+    }
+
+    stop(
+        "Harmony integration failed for this dataset. Try reducing dimensions or using method = \"mnn\".",
+        call. = FALSE
+    )
 }
 
 #' @keywords internal
@@ -735,82 +735,82 @@ RegisterIntegrationEmbedding <- function(
     integrated_reduction = NULL,
     prefer_umap = TRUE
 ) {
-  if (!is.null(integrated_reduction)) {
-    return(.scprokar_resolve_reduction_name(sce, integrated_reduction))
-  }
+    if (!is.null(integrated_reduction)) {
+        return(.scprokar_resolve_reduction_name(sce, integrated_reduction))
+    }
 
-  reduction_names <- SingleCellExperiment::reducedDimNames(sce)
-  integrated_matches <- grep("^integrated_", reduction_names, value = TRUE)
-  umap_matches <- grep("^umap_integrated_", reduction_names, value = TRUE)
-  if (isTRUE(prefer_umap)) {
-    if (length(umap_matches) > 0L) {
-      return(umap_matches[[1L]])
+    reduction_names <- SingleCellExperiment::reducedDimNames(sce)
+    integrated_matches <- grep("^integrated_", reduction_names, value = TRUE)
+    umap_matches <- grep("^umap_integrated_", reduction_names, value = TRUE)
+    if (isTRUE(prefer_umap)) {
+        if (length(umap_matches) > 0L) {
+            return(umap_matches[[1L]])
+        }
+        if (length(integrated_matches) > 0L) {
+            return(integrated_matches[[1L]])
+        }
+    } else {
+        if (length(integrated_matches) > 0L) {
+            return(integrated_matches[[1L]])
+        }
+        if (length(umap_matches) > 0L) {
+            return(umap_matches[[1L]])
+        }
     }
-    if (length(integrated_matches) > 0L) {
-      return(integrated_matches[[1L]])
-    }
-  } else {
-    if (length(integrated_matches) > 0L) {
-      return(integrated_matches[[1L]])
-    }
-    if (length(umap_matches) > 0L) {
-      return(umap_matches[[1L]])
-    }
-  }
 
-  stop(
-    "No integrated reduction was found. Run IntegrateBacData() and optionally RunIntegratedUMAP(), ",
-    "or pass `integrated_reduction` explicitly.",
-    call. = FALSE
-  )
+    stop(
+        "No integrated reduction was found. Run IntegrateBacData() and optionally RunIntegratedUMAP(), ",
+        "or pass `integrated_reduction` explicitly.",
+        call. = FALSE
+    )
 }
 
 #' @keywords internal
 .scprokar_build_cluster_graph <- function(emb, k) {
-  n <- nrow(emb)
+    n <- nrow(emb)
 
-  if (requireNamespace("RANN", quietly = TRUE)) {
-    nn <- RANN::nn2(emb, query = emb, k = k + 1)
-    idx <- nn$nn.idx[, -1, drop = FALSE]
-    dists <- nn$nn.dists[, -1, drop = FALSE]
-  } else {
-    dmat <- as.matrix(stats::dist(emb))
-    idx <- t(apply(dmat, 1, function(x) order(x)[2:(k + 1)]))
-    dists <- matrix(
-      dmat[cbind(rep(seq_len(n), each = k), as.vector(t(idx)))],
-      nrow = n,
-      byrow = TRUE
+    if (requireNamespace("RANN", quietly = TRUE)) {
+        nn <- RANN::nn2(emb, query = emb, k = k + 1)
+        idx <- nn$nn.idx[, -1, drop = FALSE]
+        dists <- nn$nn.dists[, -1, drop = FALSE]
+    } else {
+        dmat <- as.matrix(stats::dist(emb))
+        idx <- t(apply(dmat, 1, function(x) order(x)[2:(k + 1)]))
+        dists <- matrix(
+            dmat[cbind(rep(seq_len(n), each = k), as.vector(t(idx)))],
+            nrow = n,
+            byrow = TRUE
+        )
+    }
+
+    edges <- unique(do.call(
+        rbind,
+        lapply(seq_len(n), function(i) {
+            nbrs <- idx[i, ]
+            data.frame(
+                from = pmin(i, nbrs),
+                to = pmax(i, nbrs),
+                weight = 1 / (1 + dists[i, ]),
+                stringsAsFactors = FALSE
+            )
+        })
+    ))
+    edges <- edges[edges$from != edges$to, , drop = FALSE]
+
+    if (!nrow(edges)) {
+        graph <- igraph::make_empty_graph(n = n, directed = FALSE)
+        return(list(graph = graph, edges = edges))
+    }
+
+    edge_key <- paste(edges$from, edges$to, sep = "_")
+    weights <- stats::aggregate(edges$weight, by = list(edge_key = edge_key), FUN = mean)
+    split_key <- strsplit(weights$edge_key, "_", fixed = TRUE)
+    edge_df <- data.frame(
+        from = as.integer(vapply(split_key, `[`, character(1), 1)),
+        to = as.integer(vapply(split_key, `[`, character(1), 2)),
+        weight = weights$x
     )
-  }
 
-  edges <- unique(do.call(
-    rbind,
-    lapply(seq_len(n), function(i) {
-      nbrs <- idx[i, ]
-      data.frame(
-        from = pmin(i, nbrs),
-        to = pmax(i, nbrs),
-        weight = 1 / (1 + dists[i, ]),
-        stringsAsFactors = FALSE
-      )
-    })
-  ))
-  edges <- edges[edges$from != edges$to, , drop = FALSE]
-
-  if (!nrow(edges)) {
-    graph <- igraph::make_empty_graph(n = n, directed = FALSE)
-    return(list(graph = graph, edges = edges))
-  }
-
-  edge_key <- paste(edges$from, edges$to, sep = "_")
-  weights <- stats::aggregate(edges$weight, by = list(edge_key = edge_key), FUN = mean)
-  split_key <- strsplit(weights$edge_key, "_", fixed = TRUE)
-  edge_df <- data.frame(
-    from = as.integer(vapply(split_key, `[`, character(1), 1)),
-    to = as.integer(vapply(split_key, `[`, character(1), 2)),
-    weight = weights$x
-  )
-
-  graph <- igraph::graph_from_data_frame(edge_df, directed = FALSE, vertices = seq_len(n))
-  list(graph = graph, edges = edge_df)
+    graph <- igraph::graph_from_data_frame(edge_df, directed = FALSE, vertices = seq_len(n))
+    list(graph = graph, edges = edge_df)
 }

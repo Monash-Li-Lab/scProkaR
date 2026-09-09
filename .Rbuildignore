@@ -26,3 +26,5 @@
 ^.*\.Rcheck$
 ^.*\.BiocCheck$
 ^cran-comments\.md$
+^.*\.rds$
+^\.Rhistory$

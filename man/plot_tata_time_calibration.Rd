@@ -39,16 +39,22 @@ optionally split by a branch or condition label.
 }
 \examples{
 set.seed(1)
-sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
-    n_pcs = 10)
-tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
-    expected_branches = 3)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600, n_features = 60,
+    n_pcs = 10
+)
+tata <- run_tata(sce,
+    dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3
+)
 
 # Median pseudotime with an IQR ribbon for each treatment condition.
 p <- plot_tata_time_calibration(tata, branch_col = "condition")
 
 # The same comparison shown as per-timepoint boxplots.
-p_box <- plot_tata_time_calibration(tata, branch_col = "condition",
-    summary = "boxplot")
+p_box <- plot_tata_time_calibration(tata,
+    branch_col = "condition",
+    summary = "boxplot"
+)
 p_box
 }

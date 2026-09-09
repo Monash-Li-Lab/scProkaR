@@ -44,8 +44,10 @@ set.seed(1)
 sce <- simulate_tata_multidrug_sce(
     n_cells = 600, n_features = 60, n_pcs = 10
 )
-tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
-    expected_branches = 3)
+tata <- run_tata(sce,
+    dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3
+)
 trends <- compute_tata_gene_trends(
     tata,
     genes = head(rownames(tata$sce), 6),

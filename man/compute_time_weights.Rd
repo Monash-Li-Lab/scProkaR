@@ -31,6 +31,8 @@ time_table <- compute_time_weights(
     clusters = clusters,
     timepoint = SummarizedExperiment::colData(sce)$timepoint
 )
-head(time_table[, c("cluster_a", "cluster_b", "flow_score",
-    "time_weight")])
+head(time_table[, c(
+    "cluster_a", "cluster_b", "flow_score",
+    "time_weight"
+)])
 }

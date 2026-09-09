@@ -95,6 +95,8 @@ spline_de <- run_edger_spline_de(
 )
 names(spline_de$by_condition)
 head(spline_de$combined_table[, c("gene", "FDR", "condition")])
-table(spline_de$combined_table$condition,
-    spline_de$combined_table$significant)
+table(
+    spline_de$combined_table$condition,
+    spline_de$combined_table$significant
+)
 }

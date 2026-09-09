@@ -1,26 +1,26 @@
 # Internal helpers for TATA branch probabilities, uncertainty, and gene trends.
 
 .make_tata_probability_colnames <- function(branches) {
-  paste0("tata_prob_", make.names(branches))
+    paste0("tata_prob_", make.names(branches))
 }
 
 
 .compute_normalized_entropy <- function(prob_matrix) {
-  if (is.null(dim(prob_matrix))) {
-    prob_matrix <- matrix(prob_matrix, nrow = 1L)
-  }
+    if (is.null(dim(prob_matrix))) {
+        prob_matrix <- matrix(prob_matrix, nrow = 1L)
+    }
 
-  n_branches <- ncol(prob_matrix)
-  if (n_branches <= 1L) {
-    return(rep(0, nrow(prob_matrix)))
-  }
+    n_branches <- ncol(prob_matrix)
+    if (n_branches <= 1L) {
+        return(rep(0, nrow(prob_matrix)))
+    }
 
-  prob_matrix <- prob_matrix / pmax(rowSums(prob_matrix), 1e-12)
-  log_prob <- prob_matrix
-  keep <- prob_matrix > 0
-  log_prob[keep] <- log(prob_matrix[keep])
-  log_prob[!keep] <- 0
-  -rowSums(prob_matrix * log_prob) / log(n_branches)
+    prob_matrix <- prob_matrix / pmax(rowSums(prob_matrix), 1e-12)
+    log_prob <- prob_matrix
+    keep <- prob_matrix > 0
+    log_prob[keep] <- log(prob_matrix[keep])
+    log_prob[!keep] <- 0
+    -rowSums(prob_matrix * log_prob) / log(n_branches)
 }
 
 
@@ -28,223 +28,224 @@
     cluster_graph,
     cluster_pseudotime = NULL,
     root_cluster = NULL,
-    expected_branches = NULL) {
-  cluster_names <- igraph::V(cluster_graph)$name
-  if (length(cluster_names) == 0L) {
-    return(character(0))
-  }
-
-  if (!is.null(cluster_pseudotime) && nrow(cluster_pseudotime) > 0L) {
-    pt_lookup <- stats::setNames(cluster_pseudotime$pseudotime, cluster_pseudotime$cluster)
-    if (is.null(root_cluster) && any(cluster_pseudotime$is_root %in% TRUE)) {
-      root_cluster <- cluster_pseudotime$cluster[which(cluster_pseudotime$is_root)[1]]
+    expected_branches = NULL
+) {
+    cluster_names <- igraph::V(cluster_graph)$name
+    if (length(cluster_names) == 0L) {
+        return(character(0))
     }
-  } else {
-    pt_lookup <- stats::setNames(igraph::V(cluster_graph)$median_time, cluster_names)
-  }
 
-  if (is.null(root_cluster) && length(pt_lookup) > 0L) {
-    root_cluster <- names(which.min(pt_lookup))[1]
-  }
-
-  edge_df <- igraph::as_data_frame(cluster_graph, what = "edges")
-  if (!"ambiguous" %in% colnames(edge_df)) {
-    edge_df$ambiguous <- FALSE
-  }
-  directed_edges <- edge_df[!edge_df$ambiguous, , drop = FALSE]
-
-  terminal_clusters <- cluster_names[vapply(
-    cluster_names,
-    FUN.VALUE = logical(1),
-    FUN = function(cluster_name) {
-      if (!is.null(root_cluster) && identical(cluster_name, root_cluster)) {
-        return(FALSE)
-      }
-
-      outgoing <- directed_edges$to[directed_edges$from == cluster_name]
-      if (length(outgoing) == 0L) {
-        return(TRUE)
-      }
-
-      if (all(is.na(pt_lookup[c(cluster_name, outgoing)]))) {
-        return(FALSE)
-      }
-
-      later_outgoing <- outgoing[pt_lookup[outgoing] > (pt_lookup[cluster_name] + 1e-8)]
-      length(later_outgoing) == 0L
+    if (!is.null(cluster_pseudotime) && nrow(cluster_pseudotime) > 0L) {
+        pt_lookup <- stats::setNames(cluster_pseudotime$pseudotime, cluster_pseudotime$cluster)
+        if (is.null(root_cluster) && any(cluster_pseudotime$is_root %in% TRUE)) {
+            root_cluster <- cluster_pseudotime$cluster[which(cluster_pseudotime$is_root)[1]]
+        }
+    } else {
+        pt_lookup <- stats::setNames(igraph::V(cluster_graph)$median_time, cluster_names)
     }
-  )]
 
-  if (length(terminal_clusters) == 0L) {
-    component_id <- igraph::components(igraph::as_undirected(cluster_graph, mode = "collapse"))$membership
-    split_clusters <- split(cluster_names, component_id)
-    terminal_clusters <- vapply(
-      split_clusters,
-      FUN.VALUE = character(1),
-      FUN = function(cluster_set) {
-        cluster_set[which.max(pt_lookup[cluster_set])]
-      }
-    )
-  }
+    if (is.null(root_cluster) && length(pt_lookup) > 0L) {
+        root_cluster <- names(which.min(pt_lookup))[1]
+    }
 
-  terminal_clusters <- unique(as.character(terminal_clusters))
+    edge_df <- igraph::as_data_frame(cluster_graph, what = "edges")
+    if (!"ambiguous" %in% colnames(edge_df)) {
+        edge_df$ambiguous <- FALSE
+    }
+    directed_edges <- edge_df[!edge_df$ambiguous, , drop = FALSE]
 
-  if (!is.null(expected_branches)) {
-    expected_branches <- max(1L, as.integer(expected_branches))
-
-    candidate_clusters <- setdiff(cluster_names, root_cluster)
-    candidate_clusters <- candidate_clusters[!is.na(pt_lookup[candidate_clusters])]
-
-    if (!is.null(root_cluster) && root_cluster %in% cluster_names && length(candidate_clusters) > 0L) {
-      undirected_graph <- igraph::as_undirected(cluster_graph, mode = "collapse")
-      path_candidates <- lapply(candidate_clusters, function(candidate_cluster) {
-        path_vertices <- suppressWarnings(
-          igraph::shortest_paths(
-            cluster_graph,
-            from = root_cluster,
-            to = candidate_cluster,
-            mode = "out",
-            weights = 1 / pmax(igraph::E(cluster_graph)$weight, 1e-8)
-          )$vpath[[1]]
-        )
-
-        if (length(path_vertices) == 0L) {
-          path_vertices <- suppressWarnings(
-            igraph::shortest_paths(
-              undirected_graph,
-              from = root_cluster,
-              to = candidate_cluster,
-              mode = "all",
-              weights = 1 / pmax(igraph::E(undirected_graph)$weight, 1e-8)
-            )$vpath[[1]]
-          )
-        }
-
-        igraph::V(cluster_graph)$name[as.integer(path_vertices)]
-      })
-      names(path_candidates) <- candidate_clusters
-      path_candidates <- Filter(function(path_clusters) length(path_clusters) > 1L, path_candidates)
-
-      if (length(path_candidates) > 0L) {
-        min_path_len <- min(vapply(path_candidates, length, integer(1)))
-        common_prefix_len <- 0L
-        for (pos in seq_len(min_path_len)) {
-          prefix_values <- unique(vapply(path_candidates, function(path_clusters) path_clusters[pos], character(1)))
-          if (length(prefix_values) == 1L) {
-            common_prefix_len <- pos
-          } else {
-            break
-          }
-        }
-
-        branch_key <- vapply(
-          path_candidates,
-          FUN.VALUE = character(1),
-          FUN = function(path_clusters) {
-            if (length(path_clusters) > common_prefix_len) {
-              path_clusters[common_prefix_len + 1L]
-            } else {
-              utils::tail(path_clusters, 1)
+    terminal_clusters <- cluster_names[vapply(
+        cluster_names,
+        FUN.VALUE = logical(1),
+        FUN = function(cluster_name) {
+            if (!is.null(root_cluster) && identical(cluster_name, root_cluster)) {
+                return(FALSE)
             }
-          }
-        )
 
-        grouped_candidates <- split(names(path_candidates), branch_key)
-        branch_representatives <- vapply(
-          grouped_candidates,
-          FUN.VALUE = character(1),
-          FUN = function(cluster_set) {
-            cluster_set[which.max(pt_lookup[cluster_set])]
-          }
-        )
-        branch_representatives <- unique(as.character(branch_representatives))
-        ordered_representatives <- names(sort(pt_lookup[branch_representatives], decreasing = TRUE))
-        ordered_representatives <- ordered_representatives[!is.na(ordered_representatives)]
+            outgoing <- directed_edges$to[directed_edges$from == cluster_name]
+            if (length(outgoing) == 0L) {
+                return(TRUE)
+            }
 
-        if (length(ordered_representatives) >= expected_branches) {
-          return(utils::head(ordered_representatives, expected_branches))
+            if (all(is.na(pt_lookup[c(cluster_name, outgoing)]))) {
+                return(FALSE)
+            }
+
+            later_outgoing <- outgoing[pt_lookup[outgoing] > (pt_lookup[cluster_name] + 1e-8)]
+            length(later_outgoing) == 0L
         }
+    )]
 
-        remaining_candidates <- setdiff(candidate_clusters, ordered_representatives)
-        ordered_remaining <- names(sort(pt_lookup[remaining_candidates], decreasing = TRUE))
-        ordered_remaining <- ordered_remaining[!is.na(ordered_remaining)]
-
-        return(utils::head(unique(c(ordered_representatives, ordered_remaining)), expected_branches))
-      }
+    if (length(terminal_clusters) == 0L) {
+        component_id <- igraph::components(igraph::as_undirected(cluster_graph, mode = "collapse"))$membership
+        split_clusters <- split(cluster_names, component_id)
+        terminal_clusters <- vapply(
+            split_clusters,
+            FUN.VALUE = character(1),
+            FUN = function(cluster_set) {
+                cluster_set[which.max(pt_lookup[cluster_set])]
+            }
+        )
     }
 
-    ordered_candidates <- names(sort(pt_lookup[terminal_clusters], decreasing = TRUE))
-    ordered_candidates <- ordered_candidates[!is.na(ordered_candidates)]
-    return(utils::head(unique(as.character(ordered_candidates)), expected_branches))
-  }
+    terminal_clusters <- unique(as.character(terminal_clusters))
 
-  if (length(terminal_clusters) > 1L && !is.null(root_cluster) && root_cluster %in% cluster_names) {
-    undirected_graph <- igraph::as_undirected(cluster_graph, mode = "collapse")
-    path_list <- lapply(terminal_clusters, function(terminal_cluster) {
-      path_vertices <- suppressWarnings(
-        igraph::shortest_paths(
-          cluster_graph,
-          from = root_cluster,
-          to = terminal_cluster,
-          mode = "out",
-          weights = 1 / pmax(igraph::E(cluster_graph)$weight, 1e-8)
-        )$vpath[[1]]
-      )
+    if (!is.null(expected_branches)) {
+        expected_branches <- max(1L, as.integer(expected_branches))
 
-      if (length(path_vertices) == 0L) {
-        path_vertices <- suppressWarnings(
-          igraph::shortest_paths(
-            undirected_graph,
-            from = root_cluster,
-            to = terminal_cluster,
-            mode = "all",
-            weights = 1 / pmax(igraph::E(undirected_graph)$weight, 1e-8)
-          )$vpath[[1]]
-        )
-      }
+        candidate_clusters <- setdiff(cluster_names, root_cluster)
+        candidate_clusters <- candidate_clusters[!is.na(pt_lookup[candidate_clusters])]
 
-      igraph::V(cluster_graph)$name[as.integer(path_vertices)]
-    })
+        if (!is.null(root_cluster) && root_cluster %in% cluster_names && length(candidate_clusters) > 0L) {
+            undirected_graph <- igraph::as_undirected(cluster_graph, mode = "collapse")
+            path_candidates <- lapply(candidate_clusters, function(candidate_cluster) {
+                path_vertices <- suppressWarnings(
+                    igraph::shortest_paths(
+                        cluster_graph,
+                        from = root_cluster,
+                        to = candidate_cluster,
+                        mode = "out",
+                        weights = 1 / pmax(igraph::E(cluster_graph)$weight, 1e-8)
+                    )$vpath[[1]]
+                )
 
-    path_list <- Filter(function(x) length(x) > 0L, path_list)
-    if (length(path_list) > 1L) {
-      min_path_len <- min(vapply(path_list, length, integer(1)))
-      common_prefix_len <- 0L
-      for (pos in seq_len(min_path_len)) {
-        prefix_values <- unique(vapply(path_list, function(x) x[pos], character(1)))
-        if (length(prefix_values) == 1L) {
-          common_prefix_len <- pos
-        } else {
-          break
+                if (length(path_vertices) == 0L) {
+                    path_vertices <- suppressWarnings(
+                        igraph::shortest_paths(
+                            undirected_graph,
+                            from = root_cluster,
+                            to = candidate_cluster,
+                            mode = "all",
+                            weights = 1 / pmax(igraph::E(undirected_graph)$weight, 1e-8)
+                        )$vpath[[1]]
+                    )
+                }
+
+                igraph::V(cluster_graph)$name[as.integer(path_vertices)]
+            })
+            names(path_candidates) <- candidate_clusters
+            path_candidates <- Filter(function(path_clusters) length(path_clusters) > 1L, path_candidates)
+
+            if (length(path_candidates) > 0L) {
+                min_path_len <- min(vapply(path_candidates, length, integer(1)))
+                common_prefix_len <- 0L
+                for (pos in seq_len(min_path_len)) {
+                    prefix_values <- unique(vapply(path_candidates, function(path_clusters) path_clusters[pos], character(1)))
+                    if (length(prefix_values) == 1L) {
+                        common_prefix_len <- pos
+                    } else {
+                        break
+                    }
+                }
+
+                branch_key <- vapply(
+                    path_candidates,
+                    FUN.VALUE = character(1),
+                    FUN = function(path_clusters) {
+                        if (length(path_clusters) > common_prefix_len) {
+                            path_clusters[common_prefix_len + 1L]
+                        } else {
+                            utils::tail(path_clusters, 1)
+                        }
+                    }
+                )
+
+                grouped_candidates <- split(names(path_candidates), branch_key)
+                branch_representatives <- vapply(
+                    grouped_candidates,
+                    FUN.VALUE = character(1),
+                    FUN = function(cluster_set) {
+                        cluster_set[which.max(pt_lookup[cluster_set])]
+                    }
+                )
+                branch_representatives <- unique(as.character(branch_representatives))
+                ordered_representatives <- names(sort(pt_lookup[branch_representatives], decreasing = TRUE))
+                ordered_representatives <- ordered_representatives[!is.na(ordered_representatives)]
+
+                if (length(ordered_representatives) >= expected_branches) {
+                    return(utils::head(ordered_representatives, expected_branches))
+                }
+
+                remaining_candidates <- setdiff(candidate_clusters, ordered_representatives)
+                ordered_remaining <- names(sort(pt_lookup[remaining_candidates], decreasing = TRUE))
+                ordered_remaining <- ordered_remaining[!is.na(ordered_remaining)]
+
+                return(utils::head(unique(c(ordered_representatives, ordered_remaining)), expected_branches))
+            }
         }
-      }
 
-      branch_key <- vapply(
-        path_list,
-        FUN.VALUE = character(1),
-        FUN = function(path_clusters) {
-          if (length(path_clusters) > common_prefix_len) {
-            path_clusters[common_prefix_len + 1L]
-          } else {
-            utils::tail(path_clusters, 1)
-          }
-        }
-      )
-
-      grouped_paths <- split(seq_along(path_list), branch_key)
-      keep_idx <- vapply(
-        grouped_paths,
-        FUN.VALUE = integer(1),
-        FUN = function(idx) {
-          candidate_terminal <- terminal_clusters[idx]
-          idx[which.max(pt_lookup[candidate_terminal])]
-        }
-      )
-      terminal_clusters <- terminal_clusters[unname(keep_idx)]
+        ordered_candidates <- names(sort(pt_lookup[terminal_clusters], decreasing = TRUE))
+        ordered_candidates <- ordered_candidates[!is.na(ordered_candidates)]
+        return(utils::head(unique(as.character(ordered_candidates)), expected_branches))
     }
-  }
 
-  unique(as.character(terminal_clusters))
+    if (length(terminal_clusters) > 1L && !is.null(root_cluster) && root_cluster %in% cluster_names) {
+        undirected_graph <- igraph::as_undirected(cluster_graph, mode = "collapse")
+        path_list <- lapply(terminal_clusters, function(terminal_cluster) {
+            path_vertices <- suppressWarnings(
+                igraph::shortest_paths(
+                    cluster_graph,
+                    from = root_cluster,
+                    to = terminal_cluster,
+                    mode = "out",
+                    weights = 1 / pmax(igraph::E(cluster_graph)$weight, 1e-8)
+                )$vpath[[1]]
+            )
+
+            if (length(path_vertices) == 0L) {
+                path_vertices <- suppressWarnings(
+                    igraph::shortest_paths(
+                        undirected_graph,
+                        from = root_cluster,
+                        to = terminal_cluster,
+                        mode = "all",
+                        weights = 1 / pmax(igraph::E(undirected_graph)$weight, 1e-8)
+                    )$vpath[[1]]
+                )
+            }
+
+            igraph::V(cluster_graph)$name[as.integer(path_vertices)]
+        })
+
+        path_list <- Filter(function(x) length(x) > 0L, path_list)
+        if (length(path_list) > 1L) {
+            min_path_len <- min(vapply(path_list, length, integer(1)))
+            common_prefix_len <- 0L
+            for (pos in seq_len(min_path_len)) {
+                prefix_values <- unique(vapply(path_list, function(x) x[pos], character(1)))
+                if (length(prefix_values) == 1L) {
+                    common_prefix_len <- pos
+                } else {
+                    break
+                }
+            }
+
+            branch_key <- vapply(
+                path_list,
+                FUN.VALUE = character(1),
+                FUN = function(path_clusters) {
+                    if (length(path_clusters) > common_prefix_len) {
+                        path_clusters[common_prefix_len + 1L]
+                    } else {
+                        utils::tail(path_clusters, 1)
+                    }
+                }
+            )
+
+            grouped_paths <- split(seq_along(path_list), branch_key)
+            keep_idx <- vapply(
+                grouped_paths,
+                FUN.VALUE = integer(1),
+                FUN = function(idx) {
+                    candidate_terminal <- terminal_clusters[idx]
+                    idx[which.max(pt_lookup[candidate_terminal])]
+                }
+            )
+            terminal_clusters <- terminal_clusters[unname(keep_idx)]
+        }
+    }
+
+    unique(as.character(terminal_clusters))
 }
 
 
@@ -252,131 +253,103 @@
     cluster_graph,
     terminal_clusters,
     cluster_pseudotime = NULL,
-    backward_penalty = 0.15) {
-  cluster_names <- igraph::V(cluster_graph)$name
-  n_clusters <- length(cluster_names)
-  transition <- matrix(0, nrow = n_clusters, ncol = n_clusters, dimnames = list(cluster_names, cluster_names))
+    backward_penalty = 0.15
+) {
+    cluster_names <- igraph::V(cluster_graph)$name
+    n_clusters <- length(cluster_names)
+    transition <- matrix(0, nrow = n_clusters, ncol = n_clusters, dimnames = list(cluster_names, cluster_names))
 
-  edge_df <- igraph::as_data_frame(cluster_graph, what = "edges")
-  if (nrow(edge_df) == 0L) {
-    diag(transition) <- 1
-    return(transition)
-  }
-
-  pt_lookup <- NULL
-  if (!is.null(cluster_pseudotime) && nrow(cluster_pseudotime) > 0L) {
-    pt_lookup <- stats::setNames(cluster_pseudotime$pseudotime, cluster_pseudotime$cluster)
-  }
-
-  for (cluster_name in cluster_names) {
-    if (cluster_name %in% terminal_clusters) {
-      transition[cluster_name, cluster_name] <- 1
-      next
+    edge_df <- igraph::as_data_frame(cluster_graph, what = "edges")
+    if (nrow(edge_df) == 0L) {
+        diag(transition) <- 1
+        return(transition)
     }
 
-    outgoing <- edge_df[edge_df$from == cluster_name, , drop = FALSE]
-    if (nrow(outgoing) == 0L) {
-      transition[cluster_name, cluster_name] <- 1
-      next
+    pt_lookup <- NULL
+    if (!is.null(cluster_pseudotime) && nrow(cluster_pseudotime) > 0L) {
+        pt_lookup <- stats::setNames(cluster_pseudotime$pseudotime, cluster_pseudotime$cluster)
     }
 
-    weights <- outgoing$weight
-    if (!is.null(pt_lookup) && all(c(cluster_name, outgoing$to) %in% names(pt_lookup))) {
-      delta <- pt_lookup[outgoing$to] - pt_lookup[cluster_name]
-      direction_multiplier <- ifelse(is.na(delta), 1, ifelse(delta >= -1e-8, 1, backward_penalty))
-      weights <- weights * direction_multiplier
+    for (cluster_name in cluster_names) {
+        if (cluster_name %in% terminal_clusters) {
+            transition[cluster_name, cluster_name] <- 1
+            next
+        }
+
+        outgoing <- edge_df[edge_df$from == cluster_name, , drop = FALSE]
+        if (nrow(outgoing) == 0L) {
+            transition[cluster_name, cluster_name] <- 1
+            next
+        }
+
+        weights <- outgoing$weight
+        if (!is.null(pt_lookup) && all(c(cluster_name, outgoing$to) %in% names(pt_lookup))) {
+            delta <- pt_lookup[outgoing$to] - pt_lookup[cluster_name]
+            direction_multiplier <- ifelse(is.na(delta), 1, ifelse(delta >= -1e-8, 1, backward_penalty))
+            weights <- weights * direction_multiplier
+        }
+
+        if (sum(weights, na.rm = TRUE) <= 0) {
+            transition[cluster_name, cluster_name] <- 1
+            next
+        }
+
+        prob <- weights / sum(weights)
+        outgoing_prob <- tapply(prob, outgoing$to, sum)
+        transition[cluster_name, names(outgoing_prob)] <- as.numeric(outgoing_prob)
+        residual <- 1 - sum(transition[cluster_name, ])
+        if (residual > 1e-8) {
+            transition[cluster_name, cluster_name] <- residual
+        }
     }
 
-    if (sum(weights, na.rm = TRUE) <= 0) {
-      transition[cluster_name, cluster_name] <- 1
-      next
-    }
-
-    prob <- weights / sum(weights)
-    outgoing_prob <- tapply(prob, outgoing$to, sum)
-    transition[cluster_name, names(outgoing_prob)] <- as.numeric(outgoing_prob)
-    residual <- 1 - sum(transition[cluster_name, ])
-    if (residual > 1e-8) {
-      transition[cluster_name, cluster_name] <- residual
-    }
-  }
-
-  transition / pmax(rowSums(transition), 1e-12)
+    transition / pmax(rowSums(transition), 1e-12)
 }
 
 
 .solve_absorbing_probabilities <- function(transition, terminal_clusters) {
-  cluster_names <- rownames(transition)
-  transient_clusters <- setdiff(cluster_names, terminal_clusters)
-  n_terminals <- length(terminal_clusters)
+    cluster_names <- rownames(transition)
+    transient_clusters <- setdiff(cluster_names, terminal_clusters)
+    n_terminals <- length(terminal_clusters)
 
-  branch_prob <- matrix(
-    0,
-    nrow = length(cluster_names),
-    ncol = n_terminals,
-    dimnames = list(cluster_names, terminal_clusters)
-  )
-
-  if (n_terminals == 0L) {
-    return(branch_prob)
-  }
-
-  for (i in seq_along(terminal_clusters)) {
-    branch_prob[terminal_clusters[i], terminal_clusters[i]] <- 1
-  }
-
-  if (length(transient_clusters) == 0L) {
-    return(branch_prob)
-  }
-
-  q_mat <- transition[transient_clusters, transient_clusters, drop = FALSE]
-  r_mat <- transition[transient_clusters, terminal_clusters, drop = FALSE]
-  identity_mat <- diag(nrow(q_mat))
-
-  transient_prob <- tryCatch(
-    {
-      solve(identity_mat - q_mat, r_mat)
-    },
-    error = function(e) {
-      power_mat <- transition
-      for (i in seq_len(200)) {
-        power_mat <- power_mat %*% transition
-      }
-      power_mat[transient_clusters, terminal_clusters, drop = FALSE]
-    }
-  )
-
-  branch_prob[transient_clusters, terminal_clusters] <- transient_prob
-  branch_prob / pmax(rowSums(branch_prob), 1e-12)
-}
-
-
-.get_tata_branch_probability_matrix <- function(tata_result, branches = NULL) {
-  if (!is.list(tata_result) || is.null(tata_result$sce)) {
-    stop("`tata_result` must be a TATA result list returned by `run_tata()`.", call. = FALSE)
-  }
-
-  branch_df <- tata_result$branch_probabilities
-  if (is.null(branch_df)) {
-    stop("No branch probabilities were found in `tata_result`.", call. = FALSE)
-  }
-
-  branch_cols <- grep("^tata_prob_", colnames(branch_df), value = TRUE)
-  if (!is.null(branches)) {
-    branch_cols <- .make_tata_probability_colnames(branches)
-  }
-
-  missing_cols <- setdiff(branch_cols, colnames(branch_df))
-  if (length(missing_cols) > 0L) {
-    stop("Requested branch probability columns are not present: ",
-      paste(missing_cols, collapse = ", "),
-      call. = FALSE
+    branch_prob <- matrix(
+        0,
+        nrow = length(cluster_names),
+        ncol = n_terminals,
+        dimnames = list(cluster_names, terminal_clusters)
     )
-  }
 
-  prob_mat <- as.matrix(branch_df[, branch_cols, drop = FALSE])
-  rownames(prob_mat) <- branch_df$cell_id
-  prob_mat
+    if (n_terminals == 0L) {
+        return(branch_prob)
+    }
+
+    for (i in seq_along(terminal_clusters)) {
+        branch_prob[terminal_clusters[i], terminal_clusters[i]] <- 1
+    }
+
+    if (length(transient_clusters) == 0L) {
+        return(branch_prob)
+    }
+
+    q_mat <- transition[transient_clusters, transient_clusters, drop = FALSE]
+    r_mat <- transition[transient_clusters, terminal_clusters, drop = FALSE]
+    identity_mat <- diag(nrow(q_mat))
+
+    transient_prob <- tryCatch(
+        {
+            solve(identity_mat - q_mat, r_mat)
+        },
+        error = function(e) {
+            power_mat <- transition
+            for (i in seq_len(200)) {
+                power_mat <- power_mat %*% transition
+            }
+            power_mat[transient_clusters, terminal_clusters, drop = FALSE]
+        }
+    )
+
+    branch_prob[transient_clusters, terminal_clusters] <- transient_prob
+    branch_prob / pmax(rowSums(branch_prob), 1e-12)
 }
 
 
@@ -409,8 +382,10 @@
 #' sce <- simulate_tata_multidrug_sce(
 #'     n_cells = 600, n_features = 60, n_pcs = 10
 #' )
-#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
-#'     expected_branches = 3)
+#' tata <- run_tata(sce,
+#'     dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3
+#' )
 #' branch_res <- compute_tata_branch_probabilities(
 #'     tata,
 #'     expected_branches = 3
@@ -423,72 +398,73 @@ compute_tata_branch_probabilities <- function(
     terminal_clusters = NULL,
     assignment_threshold = 0.5,
     expected_branches = NULL,
-    backward_penalty = 0.15) {
-  if (!is.list(tata_result) || is.null(tata_result$cluster_graph) || is.null(tata_result$sce)) {
-    stop("`tata_result` must be a list returned by `run_tata()`.", call. = FALSE)
-  }
+    backward_penalty = 0.15
+) {
+    if (!is.list(tata_result) || is.null(tata_result$cluster_graph) || is.null(tata_result$sce)) {
+        stop("`tata_result` must be a list returned by `run_tata()`.", call. = FALSE)
+    }
 
-  cluster_graph <- tata_result$cluster_graph
-  sce <- tata_result$sce
-  cluster_pt <- tata_result$cluster_pseudotime
-  cluster_col <- tata_result$parameters$cluster_col
+    cluster_graph <- tata_result$cluster_graph
+    sce <- tata_result$sce
+    cluster_pt <- tata_result$cluster_pseudotime
+    cluster_col <- tata_result$parameters$cluster_col
 
-  if (is.null(terminal_clusters)) {
-    terminal_clusters <- .identify_tata_terminal_clusters(
-      cluster_graph = cluster_graph,
-      cluster_pseudotime = cluster_pt,
-      root_cluster = tata_result$parameters$root_cluster,
-      expected_branches = expected_branches
+    if (is.null(terminal_clusters)) {
+        terminal_clusters <- .identify_tata_terminal_clusters(
+            cluster_graph = cluster_graph,
+            cluster_pseudotime = cluster_pt,
+            root_cluster = tata_result$parameters$root_cluster,
+            expected_branches = expected_branches
+        )
+    }
+
+    transition <- .build_tata_transition_matrix(
+        cluster_graph = cluster_graph,
+        terminal_clusters = terminal_clusters,
+        cluster_pseudotime = cluster_pt,
+        backward_penalty = backward_penalty
     )
-  }
+    cluster_prob_mat <- .solve_absorbing_probabilities(transition, terminal_clusters)
 
-  transition <- .build_tata_transition_matrix(
-    cluster_graph = cluster_graph,
-    terminal_clusters = terminal_clusters,
-    cluster_pseudotime = cluster_pt,
-    backward_penalty = backward_penalty
-  )
-  cluster_prob_mat <- .solve_absorbing_probabilities(transition, terminal_clusters)
+    cluster_prob_df <- data.frame(
+        cluster = rownames(cluster_prob_mat),
+        cluster_prob_mat,
+        stringsAsFactors = FALSE,
+        check.names = FALSE
+    )
+    prob_colnames <- .make_tata_probability_colnames(terminal_clusters)
+    colnames(cluster_prob_df)[-1] <- prob_colnames
 
-  cluster_prob_df <- data.frame(
-    cluster = rownames(cluster_prob_mat),
-    cluster_prob_mat,
-    stringsAsFactors = FALSE,
-    check.names = FALSE
-  )
-  prob_colnames <- .make_tata_probability_colnames(terminal_clusters)
-  colnames(cluster_prob_df)[-1] <- prob_colnames
+    cluster_entropy <- .compute_normalized_entropy(cluster_prob_mat)
+    cluster_prob_df$tata_branch_entropy <- cluster_entropy
+    cluster_prob_df$tata_branch_plasticity <- cluster_entropy
+    cluster_prob_df$tata_branch_commitment <- 1 - cluster_entropy
+    cluster_prob_df$tata_max_branch_probability <- apply(cluster_prob_mat, 1, max)
+    branch_assignment <- terminal_clusters[max.col(cluster_prob_mat, ties.method = "first")]
+    branch_assignment[cluster_prob_df$tata_max_branch_probability < assignment_threshold] <- "ambiguous"
+    cluster_prob_df$tata_branch_assignment <- branch_assignment
 
-  cluster_entropy <- .compute_normalized_entropy(cluster_prob_mat)
-  cluster_prob_df$tata_branch_entropy <- cluster_entropy
-  cluster_prob_df$tata_branch_plasticity <- cluster_entropy
-  cluster_prob_df$tata_branch_commitment <- 1 - cluster_entropy
-  cluster_prob_df$tata_max_branch_probability <- apply(cluster_prob_mat, 1, max)
-  branch_assignment <- terminal_clusters[max.col(cluster_prob_mat, ties.method = "first")]
-  branch_assignment[cluster_prob_df$tata_max_branch_probability < assignment_threshold] <- "ambiguous"
-  cluster_prob_df$tata_branch_assignment <- branch_assignment
+    cluster_lookup <- match(as.character(SummarizedExperiment::colData(sce)[[cluster_col]]), cluster_prob_df$cluster)
+    cell_prob_df <- data.frame(
+        cell_id = colnames(sce),
+        cluster = as.character(SummarizedExperiment::colData(sce)[[cluster_col]]),
+        cluster_prob_df[cluster_lookup, prob_colnames, drop = FALSE],
+        tata_branch_entropy = cluster_prob_df$tata_branch_entropy[cluster_lookup],
+        tata_branch_plasticity = cluster_prob_df$tata_branch_plasticity[cluster_lookup],
+        tata_branch_commitment = cluster_prob_df$tata_branch_commitment[cluster_lookup],
+        tata_max_branch_probability = cluster_prob_df$tata_max_branch_probability[cluster_lookup],
+        tata_branch_assignment = cluster_prob_df$tata_branch_assignment[cluster_lookup],
+        stringsAsFactors = FALSE,
+        check.names = FALSE
+    )
 
-  cluster_lookup <- match(as.character(SummarizedExperiment::colData(sce)[[cluster_col]]), cluster_prob_df$cluster)
-  cell_prob_df <- data.frame(
-    cell_id = colnames(sce),
-    cluster = as.character(SummarizedExperiment::colData(sce)[[cluster_col]]),
-    cluster_prob_df[cluster_lookup, prob_colnames, drop = FALSE],
-    tata_branch_entropy = cluster_prob_df$tata_branch_entropy[cluster_lookup],
-    tata_branch_plasticity = cluster_prob_df$tata_branch_plasticity[cluster_lookup],
-    tata_branch_commitment = cluster_prob_df$tata_branch_commitment[cluster_lookup],
-    tata_max_branch_probability = cluster_prob_df$tata_max_branch_probability[cluster_lookup],
-    tata_branch_assignment = cluster_prob_df$tata_branch_assignment[cluster_lookup],
-    stringsAsFactors = FALSE,
-    check.names = FALSE
-  )
-
-  list(
-    terminal_clusters = terminal_clusters,
-    transition_matrix = transition,
-    cluster_branch_probabilities = cluster_prob_df,
-    branch_probabilities = cell_prob_df,
-    branch_probability_columns = prob_colnames
-  )
+    list(
+        terminal_clusters = terminal_clusters,
+        transition_matrix = transition,
+        cluster_branch_probabilities = cluster_prob_df,
+        branch_probabilities = cell_prob_df,
+        branch_probability_columns = prob_colnames
+    )
 }
 
 
@@ -515,47 +491,54 @@ compute_tata_branch_probabilities <- function(
 #' sce <- simulate_tata_multidrug_sce(
 #'     n_cells = 600, n_features = 60, n_pcs = 10
 #' )
-#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
-#'     expected_branches = 3)
+#' tata <- run_tata(sce,
+#'     dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3
+#' )
 #' branch <- tata$terminal_clusters[1]
-#' soft <- select_tata_branch_cells(tata, branch = branch,
-#'     selection_mode = "soft", probability_threshold = 0.3)
+#' soft <- select_tata_branch_cells(tata,
+#'     branch = branch,
+#'     selection_mode = "soft", probability_threshold = 0.3
+#' )
 #' head(soft)
 #' table(soft$selected)
-#' hard <- select_tata_branch_cells(tata, branch = branch,
-#'     selection_mode = "hard")
+#' hard <- select_tata_branch_cells(tata,
+#'     branch = branch,
+#'     selection_mode = "hard"
+#' )
 #' table(hard$selected)
 select_tata_branch_cells <- function(
     tata_result,
     branch,
     selection_mode = c("soft", "hard"),
-    probability_threshold = 0.25) {
-  selection_mode <- match.arg(selection_mode)
-  branch_prob_df <- tata_result$branch_probabilities
-  if (is.null(branch_prob_df)) {
-    stop("`tata_result` does not contain branch probabilities.", call. = FALSE)
-  }
+    probability_threshold = 0.25
+) {
+    selection_mode <- match.arg(selection_mode)
+    branch_prob_df <- tata_result$branch_probabilities
+    if (is.null(branch_prob_df)) {
+        stop("`tata_result` does not contain branch probabilities.", call. = FALSE)
+    }
 
-  branch_col <- .make_tata_probability_colnames(branch)
-  if (!branch_col %in% colnames(branch_prob_df)) {
-    stop("Branch `", branch, "` is not present in the branch probability table.", call. = FALSE)
-  }
+    branch_col <- .make_tata_probability_colnames(branch)
+    if (!branch_col %in% colnames(branch_prob_df)) {
+        stop("Branch `", branch, "` is not present in the branch probability table.", call. = FALSE)
+    }
 
-  selected <- if (selection_mode == "hard") {
-    branch_prob_df$tata_branch_assignment == branch
-  } else {
-    branch_prob_df[[branch_col]] >= probability_threshold
-  }
+    selected <- if (selection_mode == "hard") {
+        branch_prob_df$tata_branch_assignment == branch
+    } else {
+        branch_prob_df[[branch_col]] >= probability_threshold
+    }
 
-  data.frame(
-    cell_id = branch_prob_df$cell_id,
-    cluster = branch_prob_df$cluster,
-    branch = branch,
-    probability = branch_prob_df[[branch_col]],
-    tata_branch_assignment = branch_prob_df$tata_branch_assignment,
-    selected = selected,
-    stringsAsFactors = FALSE
-  )
+    data.frame(
+        cell_id = branch_prob_df$cell_id,
+        cluster = branch_prob_df$cluster,
+        branch = branch,
+        probability = branch_prob_df[[branch_col]],
+        tata_branch_assignment = branch_prob_df$tata_branch_assignment,
+        selected = selected,
+        stringsAsFactors = FALSE
+    )
 }
 
 
@@ -583,8 +566,10 @@ select_tata_branch_cells <- function(
 #' sce <- simulate_tata_multidrug_sce(
 #'     n_cells = 600, n_features = 60, n_pcs = 10
 #' )
-#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
-#'     expected_branches = 3)
+#' tata <- run_tata(sce,
+#'     dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3
+#' )
 #' trends <- compute_tata_gene_trends(
 #'     tata,
 #'     genes = head(rownames(tata$sce), 6),
@@ -600,157 +585,157 @@ compute_tata_gene_trends <- function(
     assay_name = NULL,
     probability_threshold = 0.05,
     grid_length = 100,
-    span = 0.5) {
-  if (missing(genes) || length(genes) == 0L) {
-    stop("Please provide at least one gene in `genes`.", call. = FALSE)
-  }
-
-  sce <- tata_result$sce
-  if (is.null(assay_name)) {
-    if ("logcounts" %in% SummarizedExperiment::assayNames(sce)) {
-      assay_name <- "logcounts"
-    } else if ("counts" %in% SummarizedExperiment::assayNames(sce)) {
-      assay_name <- "counts"
-    } else {
-      stop("No suitable assay was found for gene-trend fitting.", call. = FALSE)
+    span = 0.5
+) {
+    if (missing(genes) || length(genes) == 0L) {
+        stop("Please provide at least one gene in `genes`.", call. = FALSE)
     }
-  }
 
-  genes <- intersect(unique(genes), rownames(sce))
-  if (length(genes) == 0L) {
-    stop("None of the requested genes are present in `sce`.", call. = FALSE)
-  }
-
-  if (!"tata_pseudotime_scaled" %in% colnames(SummarizedExperiment::colData(sce))) {
-    stop("`tata_pseudotime_scaled` was not found in `colData(sce)`.", call. = FALSE)
-  }
-
-  branch_prob_df <- tata_result$branch_probabilities
-  if (is.null(branch_prob_df)) {
-    stop("`tata_result` does not contain branch probabilities.", call. = FALSE)
-  }
-
-  if (is.null(branches)) {
-    branches <- tata_result$terminal_clusters
-  }
-  branch_cols <- .make_tata_probability_colnames(branches)
-
-  expr <- SummarizedExperiment::assay(sce, assay_name)
-  pseudotime <- SummarizedExperiment::colData(sce)$tata_pseudotime_scaled
-  trend_grid <- seq(0, 1, length.out = grid_length)
-
-  trend_rows <- vector("list", length(genes) * length(branches))
-  row_counter <- 0L
-
-  for (branch_idx in seq_along(branches)) {
-    branch_name <- branches[branch_idx]
-    branch_col <- branch_cols[branch_idx]
-    branch_prob <- branch_prob_df[[branch_col]]
-
-    for (gene in genes) {
-      row_counter <- row_counter + 1L
-      gene_expr <- as.numeric(expr[gene, ])
-      keep <- !is.na(pseudotime) & !is.na(branch_prob) & branch_prob >= probability_threshold
-
-      if (sum(keep) < 10L || length(unique(round(pseudotime[keep], 3))) < 4L) {
-        next
-      }
-
-      fit_df <- data.frame(
-        pseudotime = pseudotime[keep],
-        expression = gene_expr[keep],
-        weight = branch_prob[keep]
-      )
-      fit_df <- fit_df[
-        is.finite(fit_df$pseudotime) &
-          is.finite(fit_df$expression) &
-          is.finite(fit_df$weight) &
-          fit_df$weight > 0,
-        ,
-        drop = FALSE
-      ]
-      fit_df <- fit_df[order(fit_df$pseudotime), , drop = FALSE]
-
-      if (nrow(fit_df) < 10L || length(unique(round(fit_df$pseudotime, 3))) < 4L) {
-        next
-      }
-
-      fallback_value <- rep(
-        stats::weighted.mean(fit_df$expression, fit_df$weight),
-        length(trend_grid)
-      )
-
-      fit_obj <- tryCatch(
-        suppressWarnings(
-          stats::loess(expression ~ pseudotime, data = fit_df, weights = weight, span = span)
-        ),
-        error = function(e) NULL
-      )
-
-      fitted_value <- if (is.null(fit_obj)) {
-        rep(NA_real_, length(trend_grid))
-      } else {
-        tryCatch(
-          suppressWarnings(
-            stats::predict(fit_obj, newdata = data.frame(pseudotime = trend_grid))
-          ),
-          error = function(e) rep(NA_real_, length(trend_grid))
-        )
-      }
-
-      if (all(is.na(fitted_value))) {
-        spline_fit <- tryCatch(
-          stats::smooth.spline(
-            x = fit_df$pseudotime,
-            y = fit_df$expression,
-            w = fit_df$weight,
-            spar = 0.6
-          ),
-          error = function(e) NULL
-        )
-
-        if (is.null(spline_fit)) {
-          fitted_value <- fallback_value
+    sce <- tata_result$sce
+    if (is.null(assay_name)) {
+        if ("logcounts" %in% SummarizedExperiment::assayNames(sce)) {
+            assay_name <- "logcounts"
+        } else if ("counts" %in% SummarizedExperiment::assayNames(sce)) {
+            assay_name <- "counts"
         } else {
-          fitted_value <- tryCatch(
-            stats::predict(spline_fit, x = trend_grid)$y,
-            error = function(e) fallback_value
-          )
+            stop("No suitable assay was found for gene-trend fitting.", call. = FALSE)
         }
-      } else if (anyNA(fitted_value)) {
-        non_missing <- which(!is.na(fitted_value))
-        fitted_value <- stats::approx(
-          x = trend_grid[non_missing],
-          y = fitted_value[non_missing],
-          xout = trend_grid,
-          rule = 2
-        )$y
-      }
-
-      trend_rows[[row_counter]] <- data.frame(
-        gene = gene,
-        branch = branch_name,
-        pseudotime = trend_grid,
-        fitted_expression = as.numeric(fitted_value),
-        n_cells = sum(keep),
-        stringsAsFactors = FALSE
-      )
     }
-  }
 
-  trend_rows <- Filter(Negate(is.null), trend_rows)
-  if (length(trend_rows) == 0L) {
-    stop("No branch-specific gene trends could be fit with the current settings.", call. = FALSE)
-  }
+    genes <- intersect(unique(genes), rownames(sce))
+    if (length(genes) == 0L) {
+        stop("None of the requested genes are present in `sce`.", call. = FALSE)
+    }
 
-  list(
-    trend_table = do.call(rbind, trend_rows),
-    genes = genes,
-    branches = branches,
-    assay_name = assay_name,
-    probability_threshold = probability_threshold,
-    grid = trend_grid
-  )
+    if (!"tata_pseudotime_scaled" %in% colnames(SummarizedExperiment::colData(sce))) {
+        stop("`tata_pseudotime_scaled` was not found in `colData(sce)`.", call. = FALSE)
+    }
+
+    branch_prob_df <- tata_result$branch_probabilities
+    if (is.null(branch_prob_df)) {
+        stop("`tata_result` does not contain branch probabilities.", call. = FALSE)
+    }
+
+    if (is.null(branches)) {
+        branches <- tata_result$terminal_clusters
+    }
+    branch_cols <- .make_tata_probability_colnames(branches)
+
+    expr <- SummarizedExperiment::assay(sce, assay_name)
+    pseudotime <- SummarizedExperiment::colData(sce)$tata_pseudotime_scaled
+    trend_grid <- seq(0, 1, length.out = grid_length)
+
+    trend_rows <- vector("list", length(genes) * length(branches))
+    row_counter <- 0L
+
+    for (branch_idx in seq_along(branches)) {
+        branch_name <- branches[branch_idx]
+        branch_col <- branch_cols[branch_idx]
+        branch_prob <- branch_prob_df[[branch_col]]
+
+        for (gene in genes) {
+            row_counter <- row_counter + 1L
+            gene_expr <- as.numeric(expr[gene, ])
+            keep <- !is.na(pseudotime) & !is.na(branch_prob) & branch_prob >= probability_threshold
+
+            if (sum(keep) < 10L || length(unique(round(pseudotime[keep], 3))) < 4L) {
+                next
+            }
+
+            fit_df <- data.frame(
+                pseudotime = pseudotime[keep],
+                expression = gene_expr[keep],
+                weight = branch_prob[keep]
+            )
+            fit_df <- fit_df[
+                is.finite(fit_df$pseudotime) &
+                    is.finite(fit_df$expression) &
+                    is.finite(fit_df$weight) &
+                    fit_df$weight > 0, ,
+                drop = FALSE
+            ]
+            fit_df <- fit_df[order(fit_df$pseudotime), , drop = FALSE]
+
+            if (nrow(fit_df) < 10L || length(unique(round(fit_df$pseudotime, 3))) < 4L) {
+                next
+            }
+
+            fallback_value <- rep(
+                stats::weighted.mean(fit_df$expression, fit_df$weight),
+                length(trend_grid)
+            )
+
+            fit_obj <- tryCatch(
+                suppressWarnings(
+                    stats::loess(expression ~ pseudotime, data = fit_df, weights = weight, span = span)
+                ),
+                error = function(e) NULL
+            )
+
+            fitted_value <- if (is.null(fit_obj)) {
+                rep(NA_real_, length(trend_grid))
+            } else {
+                tryCatch(
+                    suppressWarnings(
+                        stats::predict(fit_obj, newdata = data.frame(pseudotime = trend_grid))
+                    ),
+                    error = function(e) rep(NA_real_, length(trend_grid))
+                )
+            }
+
+            if (all(is.na(fitted_value))) {
+                spline_fit <- tryCatch(
+                    stats::smooth.spline(
+                        x = fit_df$pseudotime,
+                        y = fit_df$expression,
+                        w = fit_df$weight,
+                        spar = 0.6
+                    ),
+                    error = function(e) NULL
+                )
+
+                if (is.null(spline_fit)) {
+                    fitted_value <- fallback_value
+                } else {
+                    fitted_value <- tryCatch(
+                        stats::predict(spline_fit, x = trend_grid)$y,
+                        error = function(e) fallback_value
+                    )
+                }
+            } else if (anyNA(fitted_value)) {
+                non_missing <- which(!is.na(fitted_value))
+                fitted_value <- stats::approx(
+                    x = trend_grid[non_missing],
+                    y = fitted_value[non_missing],
+                    xout = trend_grid,
+                    rule = 2
+                )$y
+            }
+
+            trend_rows[[row_counter]] <- data.frame(
+                gene = gene,
+                branch = branch_name,
+                pseudotime = trend_grid,
+                fitted_expression = as.numeric(fitted_value),
+                n_cells = sum(keep),
+                stringsAsFactors = FALSE
+            )
+        }
+    }
+
+    trend_rows <- Filter(Negate(is.null), trend_rows)
+    if (length(trend_rows) == 0L) {
+        stop("No branch-specific gene trends could be fit with the current settings.", call. = FALSE)
+    }
+
+    list(
+        trend_table = do.call(rbind, trend_rows),
+        genes = genes,
+        branches = branches,
+        assay_name = assay_name,
+        probability_threshold = probability_threshold,
+        grid = trend_grid
+    )
 }
 
 
@@ -769,8 +754,10 @@ compute_tata_gene_trends <- function(
 #' sce <- simulate_tata_multidrug_sce(
 #'     n_cells = 600, n_features = 60, n_pcs = 10
 #' )
-#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
-#'     expected_branches = 3)
+#' tata <- run_tata(sce,
+#'     dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3
+#' )
 #' trends <- compute_tata_gene_trends(
 #'     tata,
 #'     genes = head(rownames(tata$sce), 12),
@@ -782,27 +769,28 @@ compute_tata_gene_trends <- function(
 #' table(trend_clusters$trend_cluster)
 cluster_tata_gene_trends <- function(
     trend_result,
-    n_clusters = 4) {
-  trend_table <- trend_result$trend_table
-  split_key <- paste(trend_table$gene, trend_table$branch, sep = "||")
-  trend_mat <- stats::reshape(
-    trend_table[, c("gene", "branch", "pseudotime", "fitted_expression")],
-    idvar = c("gene", "branch"),
-    timevar = "pseudotime",
-    direction = "wide"
-  )
+    n_clusters = 4
+) {
+    trend_table <- trend_result$trend_table
+    split_key <- paste(trend_table$gene, trend_table$branch, sep = "||")
+    trend_mat <- stats::reshape(
+        trend_table[, c("gene", "branch", "pseudotime", "fitted_expression")],
+        idvar = c("gene", "branch"),
+        timevar = "pseudotime",
+        direction = "wide"
+    )
 
-  rownames(trend_mat) <- paste(trend_mat$gene, trend_mat$branch, sep = "||")
-  numeric_mat <- as.matrix(trend_mat[, grepl("^fitted_expression\\.", colnames(trend_mat)), drop = FALSE])
-  numeric_mat <- t(scale(t(numeric_mat)))
-  numeric_mat[is.na(numeric_mat)] <- 0
+    rownames(trend_mat) <- paste(trend_mat$gene, trend_mat$branch, sep = "||")
+    numeric_mat <- as.matrix(trend_mat[, grepl("^fitted_expression\\.", colnames(trend_mat)), drop = FALSE])
+    numeric_mat <- t(scale(t(numeric_mat)))
+    numeric_mat[is.na(numeric_mat)] <- 0
 
-  km <- stats::kmeans(numeric_mat, centers = min(n_clusters, nrow(numeric_mat)))
-  gene_cluster <- tapply(km$cluster, trend_mat$gene, function(x) x[1])
+    km <- stats::kmeans(numeric_mat, centers = min(n_clusters, nrow(numeric_mat)))
+    gene_cluster <- tapply(km$cluster, trend_mat$gene, function(x) x[1])
 
-  data.frame(
-    gene = names(gene_cluster),
-    trend_cluster = as.integer(gene_cluster),
-    stringsAsFactors = FALSE
-  )
+    data.frame(
+        gene = names(gene_cluster),
+        trend_cluster = as.integer(gene_cluster),
+        stringsAsFactors = FALSE
+    )
 }

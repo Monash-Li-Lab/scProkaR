@@ -33,8 +33,10 @@ pseudotime direction is arbitrary up to reversal.
 }
 \examples{
 set.seed(1)
-sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
-    n_pcs = 10)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600, n_features = 60,
+    n_pcs = 10
+)
 tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
 
 oriented <- orient_pseudotime_to_time(

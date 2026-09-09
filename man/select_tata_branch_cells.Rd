@@ -39,14 +39,20 @@ set.seed(1)
 sce <- simulate_tata_multidrug_sce(
     n_cells = 600, n_features = 60, n_pcs = 10
 )
-tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
-    expected_branches = 3)
+tata <- run_tata(sce,
+    dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3
+)
 branch <- tata$terminal_clusters[1]
-soft <- select_tata_branch_cells(tata, branch = branch,
-    selection_mode = "soft", probability_threshold = 0.3)
+soft <- select_tata_branch_cells(tata,
+    branch = branch,
+    selection_mode = "soft", probability_threshold = 0.3
+)
 head(soft)
 table(soft$selected)
-hard <- select_tata_branch_cells(tata, branch = branch,
-    selection_mode = "hard")
+hard <- select_tata_branch_cells(tata,
+    branch = branch,
+    selection_mode = "hard"
+)
 table(hard$selected)
 }
