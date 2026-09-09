@@ -39,3 +39,34 @@ A \code{SingleCellExperiment} with an integrated reduced dimension.
 Runs one of several integration backends and stores the corrected embedding
 in \code{reducedDims(sce)}.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 300, n_features = 60, n_pcs = 10
+)
+# Assign a technical batch label to integrate over.
+sce$batch <- rep(c("batch1", "batch2"), length.out = ncol(sce))
+
+if (requireNamespace("batchelor", quietly = TRUE)) {
+    sce <- IntegrateBacData(
+        sce,
+        batch_col = "batch",
+        method = "mnn",
+        dims = 1:8
+    )
+    print(SingleCellExperiment::reducedDimNames(sce))
+}
+
+if (requireNamespace("harmony", quietly = TRUE)) {
+    sce <- IntegrateBacData(
+        sce,
+        batch_col = "batch",
+        method = "harmony",
+        dims = 1:8
+    )
+    harmony_emb <- SingleCellExperiment::reducedDim(
+        sce, "integrated_harmony"
+    )
+    print(dim(harmony_emb))
+}
+}

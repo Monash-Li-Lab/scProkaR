@@ -224,12 +224,14 @@ test_that("CreateBacObject can assign fixed sample and batch values for 10x inpu
 })
 
 test_that("10x import helper can recover cell names from Barcode metadata", {
+  ## Build an object whose cells are unnamed but whose colData carries the
+  ## original barcodes, which is what a raw 10x import looks like.
+  unnamed_counts <- Matrix::Matrix(toy_counts(), sparse = TRUE)
+  colnames(unnamed_counts) <- NULL
+
   sce <- SingleCellExperiment::SingleCellExperiment(
-    assays = list(counts = Matrix::Matrix(toy_counts(), sparse = TRUE)),
-    colData = S4Vectors::DataFrame(
-      Barcode = colnames(toy_counts()),
-      row.names = seq_len(ncol(toy_counts()))
-    )
+    assays = list(counts = unnamed_counts),
+    colData = S4Vectors::DataFrame(Barcode = colnames(toy_counts()))
   )
   colnames(sce) <- NULL
 

@@ -18,24 +18,21 @@
 #' @param n_cells Number of cells to simulate.
 #' @param n_features Number of features to simulate.
 #' @param n_pcs Number of principal components to store.
-#' @param seed Random seed.
 #'
 #' @return A `SingleCellExperiment`.
 #' @export
 #'
 #' @examples
-#' sce <- simulate_tata_sce(n_cells = 500, n_features = 60, seed = 1)
+#' sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
 #' dim(sce)
 simulate_tata_sce <- function(
     n_cells = 5000,
     n_features = 100,
-    n_pcs = 20,
-    seed = 1) {
+    n_pcs = 20) {
   simulate_tata_divergent_sce(
     n_cells = n_cells,
     n_features = n_features,
-    n_pcs = n_pcs,
-    seed = seed
+    n_pcs = n_pcs
   )
 }
 
@@ -56,14 +53,12 @@ simulate_tata_sce <- function(
 #' @export
 #'
 #' @examples
-#' sce <- simulate_tata_spiral_sce(n_cells = 1000, n_features = 80, seed = 1)
+#' sce <- simulate_tata_spiral_sce(n_cells = 1000, n_features = 80)
 #' SingleCellExperiment::reducedDimNames(sce)
 simulate_tata_spiral_sce <- function(
     n_cells = 5000,
     n_features = 100,
-    n_pcs = 20,
-    seed = 1) {
-  set.seed(seed)
+    n_pcs = 20) {
 
   if (n_features < 60) {
     stop("Please simulate at least 60 features for the spiral stress test.", call. = FALSE)
@@ -278,7 +273,6 @@ simulate_tata_spiral_sce <- function(
   SummarizedExperiment::rowData(sce)$feature_module <- feature_module
 
   S4Vectors::metadata(sce)$simulation <- list(
-    seed = seed,
     trajectory = "spiral_divergent",
     feature_module = feature_module
   )
@@ -312,14 +306,12 @@ simulate_tata_spiral_sce <- function(
 #' @export
 #'
 #' @examples
-#' sce <- simulate_tata_multidrug_sce(n_cells = 1000, n_features = 80, seed = 1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 1000, n_features = 80)
 #' table(sce$condition, sce$timepoint)
 simulate_tata_multidrug_sce <- function(
     n_cells = 5000,
     n_features = 100,
-    n_pcs = 20,
-    seed = 1) {
-  set.seed(seed)
+    n_pcs = 20) {
 
   if (n_features < 60) {
     stop("Please simulate at least 60 features for the multi-drug branching example.", call. = FALSE)
@@ -565,7 +557,6 @@ simulate_tata_multidrug_sce <- function(
   SummarizedExperiment::rowData(sce)$feature_module <- feature_module
 
   S4Vectors::metadata(sce)$simulation <- list(
-    seed = seed,
     trajectory = "multidrug_branching",
     branch_onset_hours = branch_onset,
     feature_module = feature_module
@@ -580,9 +571,7 @@ simulate_tata_multidrug_sce <- function(
 simulate_tata_divergent_sce <- function(
     n_cells = 5000,
     n_features = 100,
-    n_pcs = 20,
-    seed = 1) {
-  set.seed(seed)
+    n_pcs = 20) {
 
   if (n_cells < 1000) {
     warning(
@@ -662,7 +651,7 @@ simulate_tata_divergent_sce <- function(
   branch_strength <- ifelse(
     branch_sign == 0,
     0,
-    plogis((tau_continuous - 0.34) / 0.09) + stats::rnorm(nrow(meta), mean = 0, sd = 0.035)
+    stats::plogis((tau_continuous - 0.34) / 0.09) + stats::rnorm(nrow(meta), mean = 0, sd = 0.035)
   )
   branch_strength <- pmin(1, pmax(0, branch_strength))
   branch_effect <- branch_sign * branch_strength
@@ -789,7 +778,6 @@ simulate_tata_divergent_sce <- function(
   S4Vectors::metadata(sce)$simulation <- list(
     allocation = allocation,
     feature_module = feature_module,
-    seed = seed,
     trajectory = "divergent"
   )
 

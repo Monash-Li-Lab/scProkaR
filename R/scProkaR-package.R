@@ -30,4 +30,19 @@
 #'   \item{timepoints}{experimental sampling time}
 #' }
 #' @source Internal example dataset distributed with `SCProkaR`.
+#' @examples
+#' data("sce1", package = "SCProkaR")
+#'
+#' # Size of the object and the assays it carries
+#' dim(sce1)
+#' SummarizedExperiment::assayNames(sce1)
+#'
+#' # Cell metadata used by the SCProkaR workflow
+#' colnames(SummarizedExperiment::colData(sce1))
+#' table(sce1$treatments, sce1$timepoints)
+#'
+#' # Inspect counts on a small subset of cells
+#' sub <- sce1[, seq_len(300)]
+#' lib_size <- Matrix::colSums(SingleCellExperiment::counts(sub))
+#' summary(lib_size)
 "sce1"

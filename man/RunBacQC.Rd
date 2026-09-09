@@ -36,3 +36,34 @@ of QC metrics.
 Adds Seurat-style per-cell feature fractions to a \code{SingleCellExperiment},
 including rRNA and ribosomal-protein content.
 }
+\examples{
+set.seed(1)
+genes <- c("rrsA", "rrlB", "rrfC", "rplA", "rpsB", paste0("gene", 1:25))
+counts <- matrix(
+    rpois(length(genes) * 40, lambda = 4),
+    nrow = length(genes),
+    dimnames = list(genes, paste0("cell", seq_len(40)))
+)
+sce <- SingleCellExperiment::SingleCellExperiment(
+    assays = list(counts = counts)
+)
+
+# rRNA and ribosomal protein features are matched on feature names
+sce <- RunBacQC(sce)
+head(SummarizedExperiment::colData(sce)[, c(
+    "total_counts", "detected_features", "rrna_fraction", "pct_ribo"
+)])
+
+# Return the QC table only, leaving the object untouched
+qc <- RunBacQC(sce, store = FALSE)
+summary(qc$rrna_fraction)
+
+# Feature classes stored in rowData() can be used instead of patterns
+SummarizedExperiment::rowData(sce)$gene_class <- ifelse(
+    rownames(sce) \%in\% c("rrsA", "rrlB", "rrfC", "gene1"),
+    "rrna",
+    "other"
+)
+qc_class <- RunBacQC(sce, gene_class_col = "gene_class", store = FALSE)
+summary(qc_class$rrna_fraction)
+}

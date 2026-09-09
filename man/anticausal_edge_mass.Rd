@@ -39,3 +39,25 @@ Compare each directed graph edge with the median experimental time of its
 source and target clusters, and quantify how much total edge weight points
 backward in time.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+
+causality <- anticausal_edge_mass(
+    cluster_graph = tata$cluster_graph,
+    clusters = tata$sce$cluster,
+    timepoint = tata$sce$timepoint
+)
+causality$summary
+table(causality$edge_table$temporal_class)
+
+# Treat median-time gaps below one sampling interval as time-neutral.
+anticausal_edge_mass(
+    cluster_graph = tata$cluster_graph,
+    clusters = tata$sce$cluster,
+    timepoint = tata$sce$timepoint,
+    tolerance = 24
+)$summary
+}

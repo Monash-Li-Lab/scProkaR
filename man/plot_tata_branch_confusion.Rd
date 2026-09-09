@@ -33,3 +33,15 @@ A \code{ggplot2} object.
 For simulated data, compare a ground-truth branch label with the inferred
 hard TATA branch assignment.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3)
+
+# `simulated_branch` records the true branch of each simulated cell.
+p <- plot_tata_branch_confusion(tata, truth_col = "simulated_branch",
+    normalize = "truth")
+p
+}

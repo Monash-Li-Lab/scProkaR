@@ -38,3 +38,24 @@ fields and a log-scale assay.
 Compute edgeR normalization factors and add a \code{logcounts} assay for plotting
 and exploratory analysis.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600,
+    n_features = 60,
+    n_pcs = 10
+)
+sce$replicate <- factor(sample(seq_len(3), ncol(sce), replace = TRUE))
+
+pb <- aggregate_pseudobulk(
+    sce,
+    sample_cols = c("condition", "timepoint", "replicate"),
+    aggregation = "sum",
+    min_cells = 5
+)
+
+# TMM normalization factors plus a log-CPM assay for plotting.
+pb <- normalize_pseudobulk(pb, method = "TMM")
+summary(pb$norm.factors)
+SummarizedExperiment::assay(pb, "logcounts")[1:3, 1:3]
+}

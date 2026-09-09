@@ -22,3 +22,19 @@ direction score, and the fraction of edges tied in pseudotime.
 Summarize how often pseudotime agrees with the known direction of time on
 local cell-cell graph edges.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+
+oriented <- orient_pseudotime_to_time(
+    pseudotime = tata$cell_pseudotime,
+    timepoint = tata$sce$timepoint
+)
+local_temporal_order_metrics(
+    pseudotime = oriented,
+    adjacency = tata$adjacency_matrix,
+    timepoint = tata$sce$timepoint
+)
+}

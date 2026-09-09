@@ -65,6 +65,36 @@
 #'
 #' @return A standardized `SingleCellExperiment`.
 #' @export
+#' @examples
+#' set.seed(1)
+#' genes <- paste0("gene", seq_len(40))
+#' cells <- paste0("cell", seq_len(60))
+#' counts <- matrix(
+#'     rpois(length(genes) * length(cells), lambda = 3),
+#'     nrow = length(genes),
+#'     dimnames = list(genes, cells)
+#' )
+#' cell_meta <- data.frame(
+#'     sample_id = rep(c("s1", "s2"), each = 30),
+#'     time = rep(c(0, 30, 60), times = 20),
+#'     row.names = cells
+#' )
+#' feature_meta <- data.frame(
+#'     gene_class = rep(c("core", "accessory"), length.out = 40),
+#'     row.names = genes
+#' )
+#'
+#' sce <- CreateBacObject(
+#'     counts,
+#'     cell_metadata = cell_meta,
+#'     feature_metadata = feature_meta,
+#'     sample_col = "sample_id",
+#'     time_col = "time",
+#'     organism = "Escherichia coli"
+#' )
+#' sce
+#' table(sce$sample_id, sce$time)
+#' S4Vectors::metadata(sce)$SCProkaR$organism
 CreateBacObject <- function(
     x,
     counts_assay = "counts",
@@ -272,6 +302,30 @@ CreateBacObject <- function(
 #'
 #' @return A merged `SingleCellExperiment`.
 #' @export
+#' @examples
+#' set.seed(1)
+#' genes_a <- paste0("gene", 1:30)
+#' genes_b <- paste0("gene", 11:40)
+#' cells <- paste0("cell", seq_len(20))
+#' counts_a <- matrix(
+#'     rpois(length(genes_a) * 20, lambda = 4),
+#'     nrow = length(genes_a),
+#'     dimnames = list(genes_a, cells)
+#' )
+#' counts_b <- matrix(
+#'     rpois(length(genes_b) * 20, lambda = 4),
+#'     nrow = length(genes_b),
+#'     dimnames = list(genes_b, cells)
+#' )
+#'
+#' sce_a <- CreateBacObject(counts_a, sample_id_value = "sampleA")
+#' sce_b <- CreateBacObject(counts_b, sample_id_value = "sampleB")
+#'
+#' ## Keep only the genes shared by both samples.
+#' merged <- MergeBacObjects(sce_a, sce_b, gene_mode = "intersect")
+#' dim(merged)
+#' table(merged$sample_id)
+#' head(colnames(merged), 3)
 MergeBacObjects <- function(..., objects = NULL, gene_mode = c("intersect", "union")) {
   gene_mode <- match.arg(gene_mode)
   dots <- list(...)

@@ -45,3 +45,31 @@ For each adjacent pair of experimental timepoints, compute the probability
 that a cell from the later timepoint has larger pseudotime than a cell from
 the earlier timepoint. This is equivalent to the Mann-Whitney AUC.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+
+oriented <- orient_pseudotime_to_time(
+    pseudotime = tata$cell_pseudotime,
+    timepoint = tata$sce$timepoint
+)
+
+# Pooled across all cells.
+auc_all <- adjacent_timepoint_auc(
+    pseudotime = oriented,
+    timepoint = tata$sce$timepoint
+)
+auc_all$summary
+head(auc_all$pair_table)
+
+# Computed within each drug condition before averaging.
+auc_by_drug <- adjacent_timepoint_auc(
+    pseudotime = oriented,
+    timepoint = tata$sce$timepoint,
+    group = tata$sce$condition,
+    min_cells = 5
+)
+auc_by_drug$summary
+}

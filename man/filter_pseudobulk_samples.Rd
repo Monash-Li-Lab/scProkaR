@@ -21,3 +21,28 @@ A filtered pseudobulk \code{SingleCellExperiment}.
 Filter a pseudobulk \code{SingleCellExperiment} using minimum numbers of cells and
 library size.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600,
+    n_features = 60,
+    n_pcs = 10
+)
+sce$replicate <- factor(sample(seq_len(3), ncol(sce), replace = TRUE))
+
+pb <- aggregate_pseudobulk(
+    sce,
+    sample_cols = c("condition", "timepoint", "replicate"),
+    aggregation = "sum",
+    min_cells = 1
+)
+
+# Drop small or shallowly sequenced pseudobulk samples.
+kept <- filter_pseudobulk_samples(
+    pb,
+    min_cells = 10,
+    min_lib_size = 1000
+)
+c(before = ncol(pb), after = ncol(kept))
+range(kept$ncells)
+}

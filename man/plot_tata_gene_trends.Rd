@@ -21,3 +21,17 @@ A \code{ggplot2} object.
 \description{
 Plot fitted branch-specific gene-expression trends over TATA pseudotime.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3)
+
+# Fit trends for a few early- and late-programme marker genes.
+module <- SummarizedExperiment::rowData(tata$sce)$feature_module
+genes <- head(rownames(tata$sce)[module \%in\% c("early", "late")], 4)
+trends <- compute_tata_gene_trends(tata, genes = genes)
+p <- plot_tata_gene_trends(trends, ncol = 2)
+p
+}

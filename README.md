@@ -1,176 +1,116 @@
-
-<!-- README.md is generated from README.Rmd. Please edit that file -->
-
 # SCProkaR
 
-<!-- badges: start -->
-
-[![pkgdown](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://monash-li-lab.github.io/scProka/)
-<!-- badges: end -->
-
-SCProkaR is a bacterial and microbial single-cell RNA-seq toolkit built
-around `SingleCellExperiment`. It standardizes raw inputs, calculates
-bacterial QC metrics such as rRNA fraction, integrates batches with
-lightweight backends, benchmarks corrected embeddings including
-user-supplied embeddings, and supports integrated clustering for
-downstream analysis. The package also includes pseudobulk differential
-expression utilities and Time Aware Trajectory Analysis (TATA) for
-time-informed trajectory inference.
+SCProkaR is a `SingleCellExperiment`-centred toolkit for microbial single-cell
+RNA sequencing. It standardises bacterial input objects, computes
+prokaryote-specific quality-control metrics such as ribosomal RNA fraction,
+integrates batches with several backends, and scores the corrected embeddings
+with scIB-inspired benchmarking metrics. It also provides pseudobulk
+differential expression built on edgeR, and Time Aware Trajectory Analysis
+(TATA), a time-informed trajectory abstraction for perturbation time courses.
 
 ## Installation
 
-You can install the development version of SCProkaR like so:
+SCProkaR is under review for Bioconductor. Once it is accepted, install it
+with:
 
-``` r
-remotes::install_github("Monash-Li-Lab/scProka")
+```r
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("SCProkaR")
 ```
 
-## Package website
+To install the development version from GitHub:
 
-- Core workflow vignette:
-  <https://monash-li-lab.github.io/scProka/articles/scprokar-workflow.html>
-- Comprehensive PDF tutorial source:
-  `vignettes/scprokar-pdf-tutorial.Rmd`
-- TATA vignette:
-  <https://monash-li-lab.github.io/scProka/articles/tata-workflow.html>
-- Function reference:
-  <https://monash-li-lab.github.io/scProka/reference/index.html>
+```r
+BiocManager::install("Monash-Li-Lab/SCProkaR")
+```
 
-## Example data and workflow
+## Getting started
 
-The package ships with `sce1`, a small three-treatment
-`SingleCellExperiment` example object used throughout the main workflow
-vignette.
-
-``` r
+```r
 library(SCProkaR)
 data("sce1", package = "SCProkaR")
-
 sce1
-#> class: SingleCellExperiment 
-#> dim: 3722 5000 
-#> metadata(0):
-#> assays(1): counts
-#> rownames(3722): dnaA ABUW-RS00010 ... ABUW-RS20075 ABUW-RS20460
-#> rowData names(0):
-#> colnames(5000): P1_1_GGAGCTGAGAGGTCCGTCTA P1_1_TATTGTCATCGGAGCGCTGC ...
-#>   control4_TCGCGAAGCAGAGCTGCAAC control4_CGGATGCGAACGATTGATGA
-#> colData names(4): sample clusters treatments timepoints
-#> reducedDimNames(0):
-#> mainExpName: NULL
-#> altExpNames(0):
-table(sce1$treatments)
-#> 
-#> control  PMB0.5    PMB2 
-#>    2000    1500    1500
-table(sce1$timepoints)
-#> 
-#>    0    1    4    7 
-#>  500 1500 1500 1500
 ```
 
-A minimal workflow is:
+The package ships `sce1`, a bacterial single-cell time course of 5000 cells
+across an untreated control and two polymyxin B concentrations, sampled at
+0, 1, 4 and 7 hours.
 
-``` r
+A minimal workflow:
+
+```r
 sce <- sce1
 sce$batch <- factor(sce$treatments)
 sce <- RunBacQC(sce)
+sce <- FilterBacCells(sce, min_counts = 200, min_features = 50)
 
-if (requireNamespace("batchelor", quietly = TRUE)) {
-  sce <- IntegrateBacData(sce, batch_col = "batch", method = "mnn", dims = 1:10)
-  integrated_reduction <- "integrated_mnn"
-} else {
-  fallback_latent <- matrix(
-    rnorm(ncol(sce) * 10),
-    ncol = 10,
-    dimnames = list(colnames(sce), paste0("dim", seq_len(10)))
-  )
-  sce <- RegisterIntegrationEmbedding(sce, embedding = fallback_latent, method_name = "mock")
-  integrated_reduction <- "integrated_mock"
-}
-
-sce <- RunIntegratedUMAP(sce, reduction = integrated_reduction)
-sce <- RunIntegratedClustering(sce, reduction = integrated_reduction, cluster_col = "integrated_clusters")
-
-tata <- run_tata(
-  sce = sce,
-  dimred = integrated_reduction,
-  time_col = "timepoints",
-  cluster_col = "tata_cluster",
-  k = 20,
-  do_pseudotime = TRUE,
-  seed = 101
-)
-
-names(tata)
-#>  [1] "sce"                    "cell_graph"             "adjacency_matrix"      
-#>  [4] "cluster_graph"          "cluster_edge_table"     "cluster_vertex_table"  
-#>  [7] "cluster_pseudotime"     "cell_pseudotime"        "cell_pseudotime_scaled"
-#> [10] "parameters"             "topology_table"         "time_table"
-```
-
-If your input is a Seurat `.rds` object, you can pass it directly to
-`CreateBacObject()` and SCProkaR will extract the assay counts,
-metadata, and stored reductions:
-
-``` r
-seu <- readRDS("sample1.rds")
-sce <- CreateBacObject(
-  seu,
-  seurat_assay = "RNA",
-  seurat_layer = "counts",
-  sample_col = "orig.ident"
-)
-```
-
-For multiple samples, create and QC each sample separately, then merge
-with `MergeBacObjects()` before integration:
-
-``` r
-seu1 <- readRDS("sample1.rds")
-seu2 <- readRDS("sample2.rds")
-
-seu1$sample_id <- "sample1"
-seu1$batch <- "sample1"
-seu2$sample_id <- "sample2"
-seu2$batch <- "sample2"
-
-sce1 <- CreateBacObject(seu1, seurat_assay = "RNA", sample_col = "sample_id", batch_col = "batch")
-sce2 <- CreateBacObject(seu2, seurat_assay = "RNA", sample_col = "sample_id", batch_col = "batch")
-
-sce1 <- RunBacQC(sce1)
-sce2 <- RunBacQC(sce2)
-
-sce1 <- FilterBacCells(sce1, min_counts = 200, min_features = 50, max_rrna_fraction = 0.2)
-sce2 <- FilterBacCells(sce2, min_counts = 200, min_features = 50, max_rrna_fraction = 0.2)
-
-sce <- MergeBacObjects(sce1, sce2, gene_mode = "intersect")
-sce <- IntegrateBacData(sce, batch_col = "batch", method = "mnn")
+sce <- IntegrateBacData(sce, batch_col = "batch", method = "mnn", dims = 1:10)
 sce <- RunIntegratedUMAP(sce, reduction = "integrated_mnn")
-sce <- RunIntegratedClustering(sce, reduction = "integrated_mnn", cluster_col = "integrated_clusters")
+sce <- RunIntegratedClustering(sce, reduction = "integrated_mnn")
 
-PlotReduction(sce, reduction = "umap", colour_by = "batch")
 PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "batch")
-PlotReduction(sce, reduction = "umap_integrated_mnn", colour_by = "integrated_clusters")
 ```
 
-If the original cell barcodes overlap across samples,
-`MergeBacObjects()` will automatically make them unique by prefixing
-them with the sample or batch label when available.
+Time-aware trajectory analysis on the integrated embedding:
 
-## Optional Backends
+```r
+set.seed(101)
+tata <- run_tata(
+    sce,
+    dimred = "integrated_mnn",
+    time_col = "timepoints",
+    cluster_col = "tata_cluster",
+    k = 20
+)
+plot_tata_cluster_graph(tata)
+```
 
-Some workflows require optional packages:
+## Vignettes
 
-- `batchelor` for MNN integration
-- `harmony` for Harmony integration
-- `SeuratObject` only when you pass a Seurat `.rds` directly into
-  `CreateBacObject()`
-- `igraph` for integrated graph clustering
-- `edgeR` for pseudobulk differential expression
-- `pkgdown` for building the package website
+Two vignettes document the package in full:
 
-The public API is intentionally centered on one object type so
-downstream methods can share assays, metadata, reduced dimensions, and
-analysis results. Custom embeddings stored in `reducedDims(sce)` can
-also be benchmarked directly.
+```r
+browseVignettes("SCProkaR")
+```
+
+* **SCProkaR core workflow** covers object creation, quality control,
+  integration, benchmarking, clustering and pseudobulk differential
+  expression.
+* **Time Aware Trajectory Analysis** covers the TATA graph, pseudotime,
+  branch probabilities and gene trends.
+
+## Main functions
+
+| Stage | Functions |
+| --- | --- |
+| Object creation | `CreateBacObject()`, `MergeBacObjects()` |
+| Quality control | `RunBacQC()`, `FilterBacCells()` |
+| Integration | `IntegrateBacData()`, `RegisterIntegrationEmbedding()`, `RunIntegratedUMAP()`, `RunIntegratedClustering()` |
+| Benchmarking | `BenchmarkIntegration()` |
+| Visualisation | `PlotReduction()`, `PlotIntegrationOverview()` |
+| Pseudobulk DE | `aggregate_pseudobulk()`, `normalize_pseudobulk()`, `run_edger_pairwise_de()`, `run_edger_spline_de()`, `run_scproka_de()` |
+| Trajectory | `run_tata()`, `compute_tata_pseudotime()`, `compute_tata_branch_probabilities()`, `compute_tata_gene_trends()` |
+
+## Optional backends
+
+Several backends are optional and are only needed for specific steps:
+
+* `batchelor` for mutual nearest neighbour integration
+* `harmony` for Harmony integration
+* `uwot` for UMAP
+* `SeuratObject` for reading Seurat objects into `CreateBacObject()`
+* `DropletUtils` for reading 10x Genomics directories
+* `scran`, `irlba`, `BiocSingular`, `BiocNeighbors`, `RANN`, `FNN`, `cluster`
+  for individual preprocessing and neighbour-search steps
+
+## Getting help
+
+Please open an issue at
+<https://github.com/Monash-Li-Lab/SCProkaR/issues>, or ask on the
+[Bioconductor support site](https://support.bioconductor.org/) using the
+`SCProkaR` tag.
+
+## License
+
+MIT. See `LICENSE`.

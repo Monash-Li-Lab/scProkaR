@@ -21,3 +21,14 @@ A \code{ggplot2} object.
 \description{
 Show a barplot of terminal-branch probabilities for selected cells.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3)
+
+# The most branch-ambiguous cells have the flattest probability bars.
+p <- plot_tata_terminal_probabilities(tata, n_cells = 4)
+p
+}

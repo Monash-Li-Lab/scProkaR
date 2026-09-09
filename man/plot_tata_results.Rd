@@ -21,3 +21,14 @@ A named list of \code{ggplot2} objects.
 Create a compact set of standard TATA result plots analogous to a trajectory
 overview dashboard.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3)
+
+plots <- plot_tata_results(tata, dimred = "UMAP")
+names(plots)
+plots$pseudotime
+}

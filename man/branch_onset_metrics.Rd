@@ -41,3 +41,24 @@ each branch.
 Compare the known order or timing of branch emergence with the inferred
 pseudotime of sufficiently committed cells in each branch.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+
+oriented <- orient_pseudotime_to_time(
+    pseudotime = tata$cell_pseudotime,
+    timepoint = tata$sce$timepoint
+)
+
+# The simulation activates drug_A first, then drug_C, then drug_B.
+onset <- branch_onset_metrics(
+    pseudotime = oriented,
+    branch = tata$sce$simulated_branch,
+    branch_activation = tata$sce$branch_activation,
+    true_onset = c(drug_A = 24, drug_B = 96, drug_C = 48)
+)
+onset$summary
+onset$onset_table
+}

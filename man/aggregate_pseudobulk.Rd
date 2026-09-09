@@ -52,3 +52,29 @@ Summarize single-cell counts into pseudobulk samples defined by one or more
 metadata columns. This is a common first step before sample-level
 differential expression analysis with tools such as edgeR.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600,
+    n_features = 60,
+    n_pcs = 10
+)
+
+# Split cells into three pseudo-replicates per condition/timepoint.
+strata <- interaction(sce$condition, sce$timepoint, drop = TRUE)
+rep_id <- integer(ncol(sce))
+for (level_name in levels(strata)) {
+    idx <- which(strata == level_name)
+    rep_id[idx] <- sample(rep(seq_len(3), length.out = length(idx)))
+}
+sce$replicate <- factor(rep_id)
+
+pb <- aggregate_pseudobulk(
+    sce,
+    sample_cols = c("condition", "timepoint", "replicate"),
+    aggregation = "sum",
+    min_cells = 5
+)
+pb
+head(as.data.frame(SummarizedExperiment::colData(pb)))
+}

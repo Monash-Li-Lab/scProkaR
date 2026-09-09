@@ -13,8 +13,7 @@ PlotIntegrationOverview(
   split_by = NULL,
   point_size = 0.4,
   point_alpha = 0.8,
-  shuffle = FALSE,
-  seed = 1
+  shuffle = FALSE
 )
 }
 \arguments{
@@ -38,8 +37,6 @@ This is the \code{SCProkaR} equivalent of Seurat's \code{split.by}.}
 \item{point_alpha}{Point alpha passed to \code{\link[=PlotReduction]{PlotReduction()}}.}
 
 \item{shuffle}{Whether to shuffle plotting order.}
-
-\item{seed}{Random seed used when \code{shuffle = TRUE}.}
 }
 \value{
 A named list of \code{ggplot2} objects.
@@ -49,4 +46,33 @@ Creates a standard set of integration diagnostic plots inspired by common
 Seurat workflows: unintegrated and integrated views coloured by batch and,
 optionally, a biological label, plus a split-panel view of the integrated
 embedding.
+}
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 300, n_features = 60, n_pcs = 10
+)
+sce$batch <- rep(c("batch1", "batch2"), length.out = ncol(sce))
+
+# Any corrected embedding can stand in for the integrated view; here a
+# toy correction is registered so the example needs no extra backend.
+corrected <- SingleCellExperiment::reducedDim(sce, "PCA")[, 1:2]
+is_batch2 <- sce$batch == "batch2"
+corrected[is_batch2, ] <- corrected[is_batch2, ] * 0.9
+sce <- RegisterIntegrationEmbedding(
+    sce,
+    embedding = corrected,
+    method_name = "toy"
+)
+
+plots <- PlotIntegrationOverview(
+    sce,
+    unintegrated_reduction = "PCA",
+    integrated_reduction = "integrated_toy",
+    batch_col = "batch",
+    label_col = "condition",
+    split_by = "batch"
+)
+print(names(plots))
+print(class(plots$integrated_by_batch))
 }

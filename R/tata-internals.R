@@ -218,8 +218,7 @@
     min_split_fraction = 0.20,
     min_center_gap = 1.1,
     min_between_ratio = 0.30,
-    min_embedding_gap = 0.55,
-    seed = 1L) {
+    min_embedding_gap = 0.55) {
   time_numeric <- .coerce_time_to_numeric(timepoint)
   if (!all(is.finite(time_numeric))) {
     return(factor(clusters))
@@ -242,7 +241,6 @@
       next
     }
 
-    set.seed(seed + match(cluster_name, unique(clusters)))
     split_fit <- tryCatch(
       stats::kmeans(cluster_time, centers = 2L, nstart = 20L),
       error = function(e) NULL

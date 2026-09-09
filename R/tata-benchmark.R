@@ -14,6 +14,21 @@
 #' @return A numeric vector scaled to `[0, 1]` and oriented so that larger values
 #'   agree as well as possible with later experimental time.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+#'
+#' oriented <- orient_pseudotime_to_time(
+#'     pseudotime = tata$cell_pseudotime,
+#'     timepoint = tata$sce$timepoint
+#' )
+#' summary(oriented)
+#'
+#' # Larger oriented values should now fall on later experimental times.
+#' tapply(oriented, tata$sce$timepoint, median)
 orient_pseudotime_to_time <- function(
     pseudotime,
     timepoint,
@@ -62,6 +77,22 @@ orient_pseudotime_to_time <- function(
 #'   concordance, local temporal inversion rate, a higher-is-better temporal
 #'   direction score, and the fraction of edges tied in pseudotime.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+#'
+#' oriented <- orient_pseudotime_to_time(
+#'     pseudotime = tata$cell_pseudotime,
+#'     timepoint = tata$sce$timepoint
+#' )
+#' local_temporal_order_metrics(
+#'     pseudotime = oriented,
+#'     adjacency = tata$adjacency_matrix,
+#'     timepoint = tata$sce$timepoint
+#' )
 local_temporal_order_metrics <- function(
     pseudotime,
     adjacency,
@@ -152,6 +183,34 @@ local_temporal_order_metrics <- function(
 #' - `pair_table`: a `data.frame` with AUC values for each adjacent timepoint
 #'   comparison.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+#'
+#' oriented <- orient_pseudotime_to_time(
+#'     pseudotime = tata$cell_pseudotime,
+#'     timepoint = tata$sce$timepoint
+#' )
+#'
+#' # Pooled across all cells.
+#' auc_all <- adjacent_timepoint_auc(
+#'     pseudotime = oriented,
+#'     timepoint = tata$sce$timepoint
+#' )
+#' auc_all$summary
+#' head(auc_all$pair_table)
+#'
+#' # Computed within each drug condition before averaging.
+#' auc_by_drug <- adjacent_timepoint_auc(
+#'     pseudotime = oriented,
+#'     timepoint = tata$sce$timepoint,
+#'     group = tata$sce$condition,
+#'     min_cells = 5
+#' )
+#' auc_by_drug$summary
 adjacent_timepoint_auc <- function(
     pseudotime,
     timepoint,
@@ -294,6 +353,27 @@ adjacent_timepoint_auc <- function(
 #' - `onset_table`: a `data.frame` with the true and inferred onset values for
 #'   each branch.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+#'
+#' oriented <- orient_pseudotime_to_time(
+#'     pseudotime = tata$cell_pseudotime,
+#'     timepoint = tata$sce$timepoint
+#' )
+#'
+#' # The simulation activates drug_A first, then drug_C, then drug_B.
+#' onset <- branch_onset_metrics(
+#'     pseudotime = oriented,
+#'     branch = tata$sce$simulated_branch,
+#'     branch_activation = tata$sce$branch_activation,
+#'     true_onset = c(drug_A = 24, drug_B = 96, drug_C = 48)
+#' )
+#' onset$summary
+#' onset$onset_table
 branch_onset_metrics <- function(
     pseudotime,
     branch,
@@ -397,6 +477,22 @@ branch_onset_metrics <- function(
 #'   reachability concordance and the number of ordered cluster pairs.
 #' - `pair_table`: a `data.frame` describing each ordered cluster pair.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+#'
+#' reachability <- directed_reachability_concordance(
+#'     cluster_graph = tata$cluster_graph,
+#'     clusters = tata$sce$cluster,
+#'     timepoint = tata$sce$timepoint
+#' )
+#' reachability$summary
+#'
+#' # Cluster pairs separated by at least one full sampling interval.
+#' head(reachability$pair_table[reachability$pair_table$time_gap >= 24, ])
 directed_reachability_concordance <- function(
     cluster_graph,
     clusters,
@@ -535,6 +631,28 @@ directed_reachability_concordance <- function(
 #'   score.
 #' - `edge_table`: a `data.frame` describing each directed edge.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+#'
+#' causality <- anticausal_edge_mass(
+#'     cluster_graph = tata$cluster_graph,
+#'     clusters = tata$sce$cluster,
+#'     timepoint = tata$sce$timepoint
+#' )
+#' causality$summary
+#' table(causality$edge_table$temporal_class)
+#'
+#' # Treat median-time gaps below one sampling interval as time-neutral.
+#' anticausal_edge_mass(
+#'     cluster_graph = tata$cluster_graph,
+#'     clusters = tata$sce$cluster,
+#'     timepoint = tata$sce$timepoint,
+#'     tolerance = 24
+#' )$summary
 anticausal_edge_mass <- function(
     cluster_graph,
     clusters,

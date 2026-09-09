@@ -11,7 +11,6 @@ RunIntegratedUMAP(
   n_neighbors = 30,
   min_dist = 0.3,
   metric = "cosine",
-  seed = 1,
   ...
 )
 }
@@ -28,8 +27,6 @@ RunIntegratedUMAP(
 
 \item{metric}{Distance metric passed to \code{uwot::umap()}.}
 
-\item{seed}{Random seed for reproducibility.}
-
 \item{...}{Additional arguments passed to \code{uwot::umap()}.}
 }
 \value{
@@ -40,4 +37,19 @@ A \code{SingleCellExperiment} with the computed UMAP stored in
 Computes a two-dimensional UMAP from a stored reduced dimension, which is
 useful for inspecting integrated embeddings returned by
 \code{\link[=IntegrateBacData]{IntegrateBacData()}} or \code{\link[=RegisterIntegrationEmbedding]{RegisterIntegrationEmbedding()}}.
+}
+\examples{
+set.seed(1)
+sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+
+if (requireNamespace("uwot", quietly = TRUE)) {
+    sce <- RunIntegratedUMAP(
+        sce,
+        reduction = "PCA",
+        umap_name = "umap_pca",
+        n_neighbors = 15
+    )
+    print(SingleCellExperiment::reducedDimNames(sce))
+    print(head(SingleCellExperiment::reducedDim(sce, "umap_pca"), 3))
+}
 }

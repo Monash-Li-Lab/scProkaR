@@ -12,8 +12,7 @@ PlotReduction(
   point_alpha = 0.8,
   palette = NULL,
   facet_by = NULL,
-  shuffle = FALSE,
-  seed = 1
+  shuffle = FALSE
 )
 }
 \arguments{
@@ -34,8 +33,6 @@ gradient vector.}
 \item{facet_by}{Optional \code{colData(sce)} column used to facet the plot.}
 
 \item{shuffle}{Whether to shuffle plotting order before drawing points.}
-
-\item{seed}{Random seed used when \code{shuffle = TRUE}.}
 }
 \value{
 A \code{ggplot2} object.
@@ -44,4 +41,28 @@ A \code{ggplot2} object.
 Creates a quick scatter plot for an existing reduced dimension such as an
 original Seurat UMAP, an integrated latent space, or a UMAP computed by
 \code{\link[=RunIntegratedUMAP]{RunIntegratedUMAP()}}.
+}
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 300, n_features = 60, n_pcs = 10
+)
+plot <- PlotReduction(
+    sce,
+    reduction = "PCA",
+    colour_by = "condition",
+    point_size = 0.6,
+    shuffle = TRUE
+)
+print(class(plot))
+print(plot$labels[c("x", "y")])
+
+# Facet the same embedding by sampling time.
+faceted <- PlotReduction(
+    sce,
+    reduction = "PCA",
+    colour_by = "condition",
+    facet_by = "timepoint"
+)
+print(nrow(faceted$data))
 }

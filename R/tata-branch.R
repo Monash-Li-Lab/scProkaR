@@ -403,6 +403,21 @@
 #' @return A list with terminal clusters, cluster-level branch probabilities,
 #'   cell-level branch probabilities, and entropy/plasticity summaries.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600, n_features = 60, n_pcs = 10
+#' )
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#' branch_res <- compute_tata_branch_probabilities(
+#'     tata,
+#'     expected_branches = 3
+#' )
+#' branch_res$terminal_clusters
+#' head(branch_res$cluster_branch_probabilities)
+#' table(branch_res$branch_probabilities$tata_branch_assignment)
 compute_tata_branch_probabilities <- function(
     tata_result,
     terminal_clusters = NULL,
@@ -494,6 +509,22 @@ compute_tata_branch_probabilities <- function(
 #' @return A data frame with cell ids, branch probabilities, and a logical
 #'   `selected` column.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600, n_features = 60, n_pcs = 10
+#' )
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#' branch <- tata$terminal_clusters[1]
+#' soft <- select_tata_branch_cells(tata, branch = branch,
+#'     selection_mode = "soft", probability_threshold = 0.3)
+#' head(soft)
+#' table(soft$selected)
+#' hard <- select_tata_branch_cells(tata, branch = branch,
+#'     selection_mode = "hard")
+#' table(hard$selected)
 select_tata_branch_cells <- function(
     tata_result,
     branch,
@@ -546,6 +577,22 @@ select_tata_branch_cells <- function(
 #' @return A list containing the fitted trend table, the selected branches, and
 #'   the genes used.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600, n_features = 60, n_pcs = 10
+#' )
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#' trends <- compute_tata_gene_trends(
+#'     tata,
+#'     genes = head(rownames(tata$sce), 6),
+#'     grid_length = 30
+#' )
+#' trends$branches
+#' head(trends$trend_table)
+#' with(trends$trend_table, tapply(fitted_expression, branch, range))
 compute_tata_gene_trends <- function(
     tata_result,
     genes,
@@ -713,14 +760,29 @@ compute_tata_gene_trends <- function(
 #'
 #' @param trend_result Result list returned by `compute_tata_gene_trends()`.
 #' @param n_clusters Number of trend clusters.
-#' @param seed Random seed for k-means initialization.
 #'
 #' @return A data frame mapping genes to trend clusters.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600, n_features = 60, n_pcs = 10
+#' )
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#' trends <- compute_tata_gene_trends(
+#'     tata,
+#'     genes = head(rownames(tata$sce), 12),
+#'     grid_length = 30
+#' )
+#' set.seed(2)
+#' trend_clusters <- cluster_tata_gene_trends(trends, n_clusters = 3)
+#' head(trend_clusters)
+#' table(trend_clusters$trend_cluster)
 cluster_tata_gene_trends <- function(
     trend_result,
-    n_clusters = 4,
-    seed = 1) {
+    n_clusters = 4) {
   trend_table <- trend_result$trend_table
   split_key <- paste(trend_table$gene, trend_table$branch, sep = "||")
   trend_mat <- stats::reshape(
@@ -735,7 +797,6 @@ cluster_tata_gene_trends <- function(
   numeric_mat <- t(scale(t(numeric_mat)))
   numeric_mat[is.na(numeric_mat)] <- 0
 
-  set.seed(seed)
   km <- stats::kmeans(numeric_mat, centers = min(n_clusters, nrow(numeric_mat)))
   gene_cluster <- tapply(km$cluster, trend_mat$gene, function(x) x[1])
 

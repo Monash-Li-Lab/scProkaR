@@ -4,11 +4,7 @@
 \alias{cluster_graph_states}
 \title{Cluster graph-connected cell states}
 \usage{
-cluster_graph_states(
-  cell_graph,
-  method = c("louvain", "leiden", "walktrap"),
-  seed = 1
-)
+cluster_graph_states(cell_graph, method = c("louvain", "leiden", "walktrap"))
 }
 \arguments{
 \item{cell_graph}{An undirected cell-level \code{igraph}.}
@@ -19,8 +15,6 @@ cluster_graph_states(
 \item \code{"leiden"}: Leiden clustering if supported by the installed \code{igraph}.
 \item \code{"walktrap"}: random-walk clustering that can produce broader partitions.
 }}
-
-\item{seed}{Random seed.}
 }
 \value{
 A factor of inferred cluster labels.
@@ -30,8 +24,8 @@ Cluster the cell graph into coarse states using a graph-based community
 detection method.
 }
 \examples{
-sce <- simulate_tata_sce(n_cells = 400, n_features = 60, seed = 1)
+sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
 knn <- build_knn_graph(sce, dimred = "PCA", k = 10)
-clusters <- cluster_graph_states(knn$graph, method = "louvain", seed = 1)
+clusters <- cluster_graph_states(knn$graph, method = "louvain")
 table(clusters)
 }

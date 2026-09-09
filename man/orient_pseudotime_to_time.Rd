@@ -31,3 +31,18 @@ Flip an inferred pseudotime vector when needed so that it best agrees with
 increasing experimental time. This is useful when benchmarking methods whose
 pseudotime direction is arbitrary up to reversal.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+
+oriented <- orient_pseudotime_to_time(
+    pseudotime = tata$cell_pseudotime,
+    timepoint = tata$sce$timepoint
+)
+summary(oriented)
+
+# Larger oriented values should now fall on later experimental times.
+tapply(oriented, tata$sce$timepoint, median)
+}

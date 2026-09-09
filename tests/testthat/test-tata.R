@@ -1,6 +1,7 @@
 test_that("run_tata returns graph, pseudotime, and plotting outputs", {
   sce <- make_toy_multidrug_sce(n_cells = 900, n_features = 70, seed = 31)
 
+  set.seed(31)
   tata <- run_tata(
     sce = sce,
     dimred = "PCA",
@@ -10,8 +11,7 @@ test_that("run_tata returns graph, pseudotime, and plotting outputs", {
     cluster_method = "louvain",
     prune_threshold = 0.001,
     time_weight_mode = "directional_confidence",
-    expected_branches = 3,
-    seed = 31
+    expected_branches = 3
   )
 
   expect_true(all(c(
@@ -88,6 +88,7 @@ test_that("run_tata returns graph, pseudotime, and plotting outputs", {
 
 test_that("TATA benchmark helpers return finite summary statistics", {
   sce <- make_toy_multidrug_sce(n_cells = 900, n_features = 70, seed = 32)
+  set.seed(32)
   tata <- run_tata(
     sce = sce,
     dimred = "PCA",
@@ -97,8 +98,7 @@ test_that("TATA benchmark helpers return finite summary statistics", {
     cluster_method = "louvain",
     prune_threshold = 0.001,
     time_weight_mode = "directional_confidence",
-    expected_branches = 3,
-    seed = 32
+    expected_branches = 3
   )
 
   local_metrics <- local_temporal_order_metrics(
@@ -141,6 +141,7 @@ test_that("TATA benchmark helpers return finite summary statistics", {
 test_that("expected_branches guides TATA terminal-state selection", {
   sce <- make_toy_multidrug_sce(n_cells = 1200, n_features = 80, seed = 33)
 
+  set.seed(33)
   tata <- run_tata(
     sce = sce,
     dimred = "PCA",
@@ -150,8 +151,7 @@ test_that("expected_branches guides TATA terminal-state selection", {
     cluster_method = "louvain",
     prune_threshold = 0.001,
     time_weight_mode = "directional_confidence",
-    expected_branches = 3,
-    seed = 33
+    expected_branches = 3
   )
 
   expect_equal(length(tata$terminal_clusters), 3)

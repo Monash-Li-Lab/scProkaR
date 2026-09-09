@@ -31,3 +31,28 @@ A \code{ggplot2} object.
 Visualize one pairwise contrast from \code{\link[=run_edger_pairwise_de]{run_edger_pairwise_de()}} as an MA plot
 using average abundance and log-fold change.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600, n_features = 60, n_pcs = 10
+)
+sce$replicate <- rep(paste0("rep", 1:3), length.out = ncol(sce))
+
+pb <- aggregate_pseudobulk(
+    sce,
+    sample_cols = c("condition", "timepoint", "replicate"),
+    aggregation = "sum",
+    min_cells = 5
+)
+pb <- normalize_pseudobulk(pb, method = "TMM")
+
+de <- run_edger_pairwise_de(
+    pb,
+    group_col = "timepoint",
+    covariates = "condition",
+    contrast_type = "reference"
+)
+
+p <- plot_pairwise_de_ma(de, contrast = "120_vs_0", fdr_cutoff = 0.05)
+p
+}

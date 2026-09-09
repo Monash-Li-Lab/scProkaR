@@ -27,6 +27,31 @@
 #'   sample. The output `colData` includes the grouping metadata, `ncells`, and
 #'   `lib.size`.
 #' @export
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600,
+#'     n_features = 60,
+#'     n_pcs = 10
+#' )
+#'
+#' # Split cells into three pseudo-replicates per condition/timepoint.
+#' strata <- interaction(sce$condition, sce$timepoint, drop = TRUE)
+#' rep_id <- integer(ncol(sce))
+#' for (level_name in levels(strata)) {
+#'     idx <- which(strata == level_name)
+#'     rep_id[idx] <- sample(rep(seq_len(3), length.out = length(idx)))
+#' }
+#' sce$replicate <- factor(rep_id)
+#'
+#' pb <- aggregate_pseudobulk(
+#'     sce,
+#'     sample_cols = c("condition", "timepoint", "replicate"),
+#'     aggregation = "sum",
+#'     min_cells = 5
+#' )
+#' pb
+#' head(as.data.frame(SummarizedExperiment::colData(pb)))
 aggregate_pseudobulk <- function(
     sce,
     sample_cols,
@@ -131,6 +156,30 @@ aggregate_pseudobulk <- function(
 #'
 #' @return A filtered pseudobulk `SingleCellExperiment`.
 #' @export
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600,
+#'     n_features = 60,
+#'     n_pcs = 10
+#' )
+#' sce$replicate <- factor(sample(seq_len(3), ncol(sce), replace = TRUE))
+#'
+#' pb <- aggregate_pseudobulk(
+#'     sce,
+#'     sample_cols = c("condition", "timepoint", "replicate"),
+#'     aggregation = "sum",
+#'     min_cells = 1
+#' )
+#'
+#' # Drop small or shallowly sequenced pseudobulk samples.
+#' kept <- filter_pseudobulk_samples(
+#'     pb,
+#'     min_cells = 10,
+#'     min_lib_size = 1000
+#' )
+#' c(before = ncol(pb), after = ncol(kept))
+#' range(kept$ncells)
 filter_pseudobulk_samples <- function(
     pb,
     min_cells = 10L,
@@ -181,6 +230,26 @@ filter_pseudobulk_samples <- function(
 #' @return The input pseudobulk object with updated `colData` normalization
 #'   fields and a log-scale assay.
 #' @export
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600,
+#'     n_features = 60,
+#'     n_pcs = 10
+#' )
+#' sce$replicate <- factor(sample(seq_len(3), ncol(sce), replace = TRUE))
+#'
+#' pb <- aggregate_pseudobulk(
+#'     sce,
+#'     sample_cols = c("condition", "timepoint", "replicate"),
+#'     aggregation = "sum",
+#'     min_cells = 5
+#' )
+#'
+#' # TMM normalization factors plus a log-CPM assay for plotting.
+#' pb <- normalize_pseudobulk(pb, method = "TMM")
+#' summary(pb$norm.factors)
+#' SummarizedExperiment::assay(pb, "logcounts")[1:3, 1:3]
 normalize_pseudobulk <- function(
     pb,
     assay_name = "counts",

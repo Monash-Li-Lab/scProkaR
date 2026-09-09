@@ -5,14 +5,9 @@
 \alias{simulate_tata_divergent_sce}
 \title{Simulate a divergent TATA dataset}
 \usage{
-simulate_tata_sce(n_cells = 5000, n_features = 100, n_pcs = 20, seed = 1)
+simulate_tata_sce(n_cells = 5000, n_features = 100, n_pcs = 20)
 
-simulate_tata_divergent_sce(
-  n_cells = 5000,
-  n_features = 100,
-  n_pcs = 20,
-  seed = 1
-)
+simulate_tata_divergent_sce(n_cells = 5000, n_features = 100, n_pcs = 20)
 }
 \arguments{
 \item{n_cells}{Number of cells to simulate.}
@@ -20,8 +15,6 @@ simulate_tata_divergent_sce(
 \item{n_features}{Number of features to simulate.}
 
 \item{n_pcs}{Number of principal components to store.}
-
-\item{seed}{Random seed.}
 }
 \value{
 A \code{SingleCellExperiment}.
@@ -46,6 +39,6 @@ The returned object contains:
 }
 }
 \examples{
-sce <- simulate_tata_sce(n_cells = 500, n_features = 60, seed = 1)
+sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
 dim(sce)
 }

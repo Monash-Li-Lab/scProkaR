@@ -70,3 +70,31 @@ Fit spline-based edgeR models to identify genes that change over time within
 each condition, then optionally return fitted expression curves for
 visualization.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600, n_features = 60, n_pcs = 10
+)
+sce$replicate <- rep(paste0("rep", 1:3), length.out = ncol(sce))
+
+pb <- aggregate_pseudobulk(
+    sce,
+    sample_cols = c("condition", "timepoint", "replicate"),
+    aggregation = "sum",
+    min_cells = 5
+)
+pb <- normalize_pseudobulk(pb, method = "TMM")
+
+# Six timepoints per drug, so a natural spline in time is estimable.
+spline_de <- run_edger_spline_de(
+    pb,
+    time_col = "timepoint",
+    condition_col = "condition",
+    df = 3,
+    curve_grid_length = 50
+)
+names(spline_de$by_condition)
+head(spline_de$combined_table[, c("gene", "FDR", "condition")])
+table(spline_de$combined_table$condition,
+    spline_de$combined_table$significant)
+}

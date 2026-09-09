@@ -123,3 +123,34 @@ A standardized \code{SingleCellExperiment}.
 \code{SingleCellExperiment}, aligns cell and feature metadata, and records package
 provenance used by downstream SCProkaR workflows.
 }
+\examples{
+set.seed(1)
+genes <- paste0("gene", seq_len(40))
+cells <- paste0("cell", seq_len(60))
+counts <- matrix(
+    rpois(length(genes) * length(cells), lambda = 3),
+    nrow = length(genes),
+    dimnames = list(genes, cells)
+)
+cell_meta <- data.frame(
+    sample_id = rep(c("s1", "s2"), each = 30),
+    time = rep(c(0, 30, 60), times = 20),
+    row.names = cells
+)
+feature_meta <- data.frame(
+    gene_class = rep(c("core", "accessory"), length.out = 40),
+    row.names = genes
+)
+
+sce <- CreateBacObject(
+    counts,
+    cell_metadata = cell_meta,
+    feature_metadata = feature_meta,
+    sample_col = "sample_id",
+    time_col = "time",
+    organism = "Escherichia coli"
+)
+sce
+table(sce$sample_id, sce$time)
+S4Vectors::metadata(sce)$SCProkaR$organism
+}

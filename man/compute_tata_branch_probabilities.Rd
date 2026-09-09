@@ -40,3 +40,18 @@ Estimate terminal-branch absorption probabilities for clusters and cells on
 the TATA abstract graph, then derive an entropy-style plasticity score for
 each cell.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600, n_features = 60, n_pcs = 10
+)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3)
+branch_res <- compute_tata_branch_probabilities(
+    tata,
+    expected_branches = 3
+)
+branch_res$terminal_clusters
+head(branch_res$cluster_branch_probabilities)
+table(branch_res$branch_probabilities$tata_branch_assignment)
+}

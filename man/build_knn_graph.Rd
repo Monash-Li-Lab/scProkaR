@@ -25,7 +25,7 @@ Build an undirected cell-cell k-nearest-neighbour graph from a
 low-dimensional representation.
 }
 \examples{
-sce <- simulate_tata_sce(n_cells = 400, n_features = 60, seed = 1)
+sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
 knn <- build_knn_graph(sce, dimred = "PCA", k = 10)
 igraph::vcount(knn$graph)
 }

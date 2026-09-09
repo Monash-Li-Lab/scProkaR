@@ -9,6 +9,17 @@
 #'
 #' @return A data frame of observed edges, expected edges, and topology weights.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+#' knn <- build_knn_graph(sce, dimred = "PCA", k = 12)
+#' clusters <- cluster_graph_states(knn$graph, method = "louvain")
+#' topology_table <- compute_topology_weights(
+#'     adjacency = knn$adjacency,
+#'     clusters = clusters
+#' )
+#' head(topology_table[order(-topology_table$topology_weight), ])
 compute_topology_weights <- function(
     adjacency,
     clusters,
@@ -79,6 +90,19 @@ compute_topology_weights <- function(
 #'
 #' @return A data frame of temporal flow scores and time weights.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+#' knn <- build_knn_graph(sce, dimred = "PCA", k = 12)
+#' clusters <- cluster_graph_states(knn$graph, method = "louvain")
+#' time_table <- compute_time_weights(
+#'     adjacency = knn$adjacency,
+#'     clusters = clusters,
+#'     timepoint = SummarizedExperiment::colData(sce)$timepoint
+#' )
+#' head(time_table[, c("cluster_a", "cluster_b", "flow_score",
+#'     "time_weight")])
 compute_time_weights <- function(
     adjacency,
     clusters,
@@ -251,6 +275,24 @@ compute_time_weights <- function(
 #' @return A list containing the directed cluster graph, the cluster edge table,
 #'   and cluster vertex metadata.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+#' knn <- build_knn_graph(sce, dimred = "PCA", k = 12)
+#' clusters <- cluster_graph_states(knn$graph, method = "louvain")
+#' timepoint <- SummarizedExperiment::colData(sce)$timepoint
+#' topology_table <- compute_topology_weights(knn$adjacency, clusters)
+#' time_table <- compute_time_weights(knn$adjacency, clusters, timepoint)
+#' tata_graph <- build_tata_graph(
+#'     topology_table = topology_table,
+#'     time_table = time_table,
+#'     clusters = clusters,
+#'     embedding = knn$embedding,
+#'     timepoint = timepoint
+#' )
+#' igraph::ecount(tata_graph$graph)
+#' head(tata_graph$vertex_table)
 build_tata_graph <- function(
     topology_table,
     time_table,

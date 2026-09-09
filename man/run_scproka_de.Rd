@@ -54,3 +54,34 @@ settings.
 Aggregate single-cell counts into pseudobulk samples and then dispatch to a
 pairwise or time-series edgeR workflow.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600, n_features = 60, n_pcs = 10
+)
+sce$replicate <- rep(paste0("rep", 1:3), length.out = ncol(sce))
+
+# Pseudobulk aggregation plus pairwise edgeR contrasts in one call.
+pairwise_res <- run_scproka_de(
+    sce,
+    mode = "pairwise",
+    sample_cols = c("condition", "timepoint", "replicate"),
+    min_cells = 5,
+    group_col = "timepoint",
+    covariates = "condition"
+)
+dim(pairwise_res$pseudobulk)
+names(pairwise_res$de_result$tables)
+
+# The same pseudobulk design analysed as a spline time series.
+ts_res <- run_scproka_de(
+    sce,
+    mode = "time_series",
+    sample_cols = c("condition", "timepoint", "replicate"),
+    min_cells = 5,
+    time_col = "timepoint",
+    condition_col = "condition",
+    curve_grid_length = 50
+)
+head(ts_res$de_result$combined_table[, c("gene", "FDR", "condition")])
+}

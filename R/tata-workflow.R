@@ -44,7 +44,6 @@
 #'   supplied, TATA uses it to guide terminal-state selection for downstream
 #'   branch probabilities and branch assignment.
 #' @param n_pcs_if_missing Number of PCs to compute if `dimred` is missing.
-#' @param seed Random seed.
 #'
 #' @return A list containing the updated `sce`, cell graph, adjacency matrix,
 #'   cluster graph, cluster edge table, cluster pseudotime, cell pseudotime, and
@@ -52,8 +51,8 @@
 #' @export
 #'
 #' @examples
-#' sce <- simulate_tata_sce(n_cells = 500, n_features = 60, seed = 1)
-#' tata <- run_tata(sce, dimred = "PCA", k = 12, seed = 1)
+#' sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+#' tata <- run_tata(sce, dimred = "PCA", k = 12)
 #' names(tata)
 run_tata <- function(
     sce,
@@ -76,8 +75,7 @@ run_tata <- function(
     refine_min_split_fraction = 0.20,
     do_branch_probs = TRUE,
     expected_branches = NULL,
-    n_pcs_if_missing = 20,
-    seed = 1) {
+    n_pcs_if_missing = 20) {
   if (!methods::is(sce, "SingleCellExperiment")) {
     stop("`sce` must be a SingleCellExperiment.", call. = FALSE)
   }
@@ -102,8 +100,7 @@ run_tata <- function(
 
   inferred_cluster <- cluster_graph_states(
     cell_graph = knn_result$graph,
-    method = cluster_method,
-    seed = seed
+    method = cluster_method
   )
 
   if (isTRUE(refine_clusters) && isTRUE(use_time)) {
@@ -116,8 +113,7 @@ run_tata <- function(
       timepoint = SummarizedExperiment::colData(sce)[[time_col]],
       embedding = knn_result$embedding,
       min_cluster_size = refine_min_cells,
-      min_split_fraction = refine_min_split_fraction,
-      seed = seed
+      min_split_fraction = refine_min_split_fraction
     )
   }
 
@@ -237,8 +233,7 @@ run_tata <- function(
     refine_min_split_fraction = refine_min_split_fraction,
     do_branch_probs = do_branch_probs,
     expected_branches = expected_branches,
-    root_cluster = pseudotime_result$root_cluster,
-    seed = seed
+    root_cluster = pseudotime_result$root_cluster
   )
 
   S4Vectors::metadata(sce)$TATA <- list(

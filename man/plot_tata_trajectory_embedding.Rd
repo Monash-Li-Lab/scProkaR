@@ -55,3 +55,15 @@ embedding such as UMAP. The plotted paths follow root-to-terminal routes in
 the cluster graph and can be shown as smoothed curves for a more classical
 trajectory-style visualization.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3)
+
+# Overlay the three root-to-terminal routes on the UMAP embedding.
+p <- plot_tata_trajectory_embedding(tata, dimred = "UMAP",
+    colour_by = "timepoint", max_paths = 3)
+p
+}

@@ -4,12 +4,7 @@
 \alias{simulate_tata_multidrug_sce}
 \title{Simulate a multi-drug branching TATA dataset}
 \usage{
-simulate_tata_multidrug_sce(
-  n_cells = 5000,
-  n_features = 100,
-  n_pcs = 20,
-  seed = 1
-)
+simulate_tata_multidrug_sce(n_cells = 5000, n_features = 100, n_pcs = 20)
 }
 \arguments{
 \item{n_cells}{Number of cells to simulate.}
@@ -17,8 +12,6 @@ simulate_tata_multidrug_sce(
 \item{n_features}{Number of features to simulate.}
 
 \item{n_pcs}{Number of principal components to store.}
-
-\item{seed}{Random seed.}
 }
 \value{
 A \code{SingleCellExperiment}.
@@ -45,6 +38,6 @@ whether time labels can recover direction when the root is not visually
 obvious from topology alone.
 }
 \examples{
-sce <- simulate_tata_multidrug_sce(n_cells = 1000, n_features = 80, seed = 1)
+sce <- simulate_tata_multidrug_sce(n_cells = 1000, n_features = 80)
 table(sce$condition, sce$timepoint)
 }

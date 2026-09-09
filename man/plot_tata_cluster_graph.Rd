@@ -70,3 +70,19 @@ Plot the directed cluster-level TATA graph. The graph can be drawn in its
 own abstract layout or positioned on a chosen reduced dimension so that the
 graph coordinates match the embedding shown to the user.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3)
+
+# Abstract graph layout, nodes coloured by cluster median time.
+p <- plot_tata_cluster_graph(tata)
+
+# The same graph positioned on the UMAP embedding.
+p_embedded <- plot_tata_cluster_graph(tata, dimred = "UMAP",
+    layout_mode = "embedding", show_cells = TRUE,
+    node_colour_by = "cluster")
+p_embedded
+}

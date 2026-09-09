@@ -43,3 +43,20 @@ clusters are not reachable in the directed graph, TATA falls back to the
 undirected abstract topology for those clusters so late branches are not
 dropped simply because an intermediate direction is ambiguous.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+tata <- run_tata(sce, dimred = "PCA", k = 15)
+
+# Recompute pseudotime directly from the abstracted cluster graph.
+pt <- compute_tata_pseudotime(
+    cluster_graph = tata$cluster_graph,
+    sce = tata$sce,
+    cluster_col = "cluster",
+    time_col = "timepoint"
+)
+
+pt$root_cluster
+head(pt$cluster_pseudotime)
+summary(pt$cell_pseudotime_scaled)
+}

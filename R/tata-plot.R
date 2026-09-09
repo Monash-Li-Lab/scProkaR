@@ -32,6 +32,22 @@
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#'
+#' # Abstract graph layout, nodes coloured by cluster median time.
+#' p <- plot_tata_cluster_graph(tata)
+#'
+#' # The same graph positioned on the UMAP embedding.
+#' p_embedded <- plot_tata_cluster_graph(tata, dimred = "UMAP",
+#'     layout_mode = "embedding", show_cells = TRUE,
+#'     node_colour_by = "cluster")
+#' p_embedded
 plot_tata_cluster_graph <- function(
     tata_result,
     dimred = NULL,
@@ -325,6 +341,18 @@ plot_tata_cluster_graph <- function(
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#'
+#' # Overlay the three root-to-terminal routes on the UMAP embedding.
+#' p <- plot_tata_trajectory_embedding(tata, dimred = "UMAP",
+#'     colour_by = "timepoint", max_paths = 3)
+#' p
 plot_tata_trajectory_embedding <- function(
     tata_result,
     dimred = "UMAP",
@@ -599,6 +627,21 @@ plot_tata_trajectory_embedding <- function(
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#'
+#' # All candidate edges, showing which ones survived pruning.
+#' p <- plot_tata_edge_causality(tata)
+#'
+#' # Retained edges only, labelled by their inferred direction.
+#' p_kept <- plot_tata_edge_causality(tata, kept_only = TRUE,
+#'     label_edges = TRUE)
+#' p_kept
 plot_tata_edge_causality <- function(
     tata_result,
     label_edges = FALSE,
@@ -673,6 +716,21 @@ plot_tata_edge_causality <- function(
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#'
+#' # Median pseudotime with an IQR ribbon for each treatment condition.
+#' p <- plot_tata_time_calibration(tata, branch_col = "condition")
+#'
+#' # The same comparison shown as per-timepoint boxplots.
+#' p_box <- plot_tata_time_calibration(tata, branch_col = "condition",
+#'     summary = "boxplot")
+#' p_box
 plot_tata_time_calibration <- function(
     tata_result,
     time_col = NULL,
@@ -765,6 +823,18 @@ plot_tata_time_calibration <- function(
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#'
+#' # `simulated_branch` records the true branch of each simulated cell.
+#' p <- plot_tata_branch_confusion(tata, truth_col = "simulated_branch",
+#'     normalize = "truth")
+#' p
 plot_tata_branch_confusion <- function(
     tata_result,
     truth_col = "simulated_branch",
@@ -783,9 +853,9 @@ plot_tata_branch_confusion <- function(
   names(tab)[3] <- "value"
 
   if (normalize == "truth") {
-    tab$value <- tab$value / ave(tab$value, tab$truth, FUN = function(x) pmax(sum(x), 1))
+    tab$value <- tab$value / stats::ave(tab$value, tab$truth, FUN = function(x) pmax(sum(x), 1))
   } else if (normalize == "predicted") {
-    tab$value <- tab$value / ave(tab$value, tab$predicted, FUN = function(x) pmax(sum(x), 1))
+    tab$value <- tab$value / stats::ave(tab$value, tab$predicted, FUN = function(x) pmax(sum(x), 1))
   }
 
   ggplot2::ggplot(tab, ggplot2::aes(x = predicted, y = truth, fill = value)) +
@@ -816,6 +886,17 @@ plot_tata_branch_confusion <- function(
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#'
+#' # One panel per terminal branch, coloured by branch probability.
+#' p <- plot_tata_branch_probabilities(tata, dimred = "UMAP", ncol = 2)
+#' p
 plot_tata_branch_probabilities <- function(
     tata_result,
     dimred = "UMAP",
@@ -883,6 +964,19 @@ plot_tata_branch_probabilities <- function(
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#'
+#' # Highlight cells with an appreciable probability of one terminal fate.
+#' branch <- tata$terminal_clusters[1]
+#' p <- plot_tata_branch_selection(tata, branch = branch, dimred = "UMAP",
+#'     selection_mode = "soft", probability_threshold = 0.25)
+#' p
 plot_tata_branch_selection <- function(
     tata_result,
     branch,
@@ -938,6 +1032,17 @@ plot_tata_branch_selection <- function(
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#'
+#' # The most branch-ambiguous cells have the flattest probability bars.
+#' p <- plot_tata_terminal_probabilities(tata, n_cells = 4)
+#' p
 plot_tata_terminal_probabilities <- function(
     tata_result,
     cell_ids = NULL,
@@ -990,6 +1095,20 @@ plot_tata_terminal_probabilities <- function(
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#'
+#' # Fit trends for a few early- and late-programme marker genes.
+#' module <- SummarizedExperiment::rowData(tata$sce)$feature_module
+#' genes <- head(rownames(tata$sce)[module %in% c("early", "late")], 4)
+#' trends <- compute_tata_gene_trends(tata, genes = genes)
+#' p <- plot_tata_gene_trends(trends, ncol = 2)
+#' p
 plot_tata_gene_trends <- function(
     trend_result,
     genes = NULL,
@@ -1030,16 +1149,28 @@ plot_tata_gene_trends <- function(
 #'   trend before plotting.
 #' @param n_clusters Optional number of k-means clusters used to order genes by
 #'   trend shape.
-#' @param seed Random seed used for trend clustering.
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#'
+#' # Z-scored trends, with genes grouped by k-means on trend shape.
+#' trends <- compute_tata_gene_trends(tata,
+#'     genes = head(rownames(tata$sce), 12))
+#' p <- plot_tata_gene_trend_heatmap(trends, scale_rows = TRUE,
+#'     n_clusters = 3)
+#' p
 plot_tata_gene_trend_heatmap <- function(
     trend_result,
     branches = NULL,
     scale_rows = TRUE,
-    n_clusters = NULL,
-    seed = 1) {
+    n_clusters = NULL) {
   trend_df <- trend_result$trend_table
   if (!is.null(branches)) {
     trend_df <- trend_df[trend_df$branch %in% branches, , drop = FALSE]
@@ -1064,8 +1195,7 @@ plot_tata_gene_trend_heatmap <- function(
   if (!is.null(n_clusters)) {
     cluster_df <- cluster_tata_gene_trends(
       trend_result = list(trend_table = trend_df),
-      n_clusters = n_clusters,
-      seed = seed
+      n_clusters = n_clusters
     )
     trend_df <- merge(trend_df, cluster_df, by = "gene", all.x = TRUE, sort = FALSE)
     trend_df <- trend_df[order(trend_df$trend_cluster, trend_df$gene, trend_df$branch, trend_df$pseudotime), , drop = FALSE]
@@ -1102,6 +1232,17 @@ plot_tata_gene_trend_heatmap <- function(
 #'
 #' @return A named list of `ggplot2` objects.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+#'     n_pcs = 10)
+#' tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+#'     expected_branches = 3)
+#'
+#' plots <- plot_tata_results(tata, dimred = "UMAP")
+#' names(plots)
+#' plots$pseudotime
 plot_tata_results <- function(
     tata_result,
     dimred = "UMAP",

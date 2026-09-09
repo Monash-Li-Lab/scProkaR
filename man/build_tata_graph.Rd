@@ -54,3 +54,21 @@ and cluster vertex metadata.
 Combine topology and temporal consistency into final TATA edge weights, assign
 edge direction, and prune weak edges to obtain the cluster-level TATA graph.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+knn <- build_knn_graph(sce, dimred = "PCA", k = 12)
+clusters <- cluster_graph_states(knn$graph, method = "louvain")
+timepoint <- SummarizedExperiment::colData(sce)$timepoint
+topology_table <- compute_topology_weights(knn$adjacency, clusters)
+time_table <- compute_time_weights(knn$adjacency, clusters, timepoint)
+tata_graph <- build_tata_graph(
+    topology_table = topology_table,
+    time_table = time_table,
+    clusters = clusters,
+    embedding = knn$embedding,
+    timepoint = timepoint
+)
+igraph::ecount(tata_graph$graph)
+head(tata_graph$vertex_table)
+}

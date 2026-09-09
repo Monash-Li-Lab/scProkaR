@@ -42,3 +42,16 @@ A \code{ggplot2} object.
 Highlight cells that belong to one terminal branch using either a hard or a
 soft branch-selection rule.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3)
+
+# Highlight cells with an appreciable probability of one terminal fate.
+branch <- tata$terminal_clusters[1]
+p <- plot_tata_branch_selection(tata, branch = branch, dimred = "UMAP",
+    selection_mode = "soft", probability_threshold = 0.25)
+p
+}

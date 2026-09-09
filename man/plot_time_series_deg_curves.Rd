@@ -32,3 +32,30 @@ Plot fitted spline curves for selected genes, optionally overlaid across
 conditions. When a requested gene was significant in one condition but not
 another, the non-significant condition is still drawn using a dotted line.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600, n_features = 60, n_pcs = 10
+)
+sce$replicate <- rep(paste0("rep", 1:3), length.out = ncol(sce))
+
+pb <- aggregate_pseudobulk(
+    sce,
+    sample_cols = c("condition", "timepoint", "replicate"),
+    aggregation = "sum",
+    min_cells = 5
+)
+pb <- normalize_pseudobulk(pb, method = "TMM")
+
+spline_de <- run_edger_spline_de(
+    pb,
+    time_col = "timepoint",
+    condition_col = "condition",
+    df = 3,
+    curve_grid_length = 50
+)
+
+# Top temporally variable genes, overlaid across the three drugs.
+p <- plot_time_series_deg_curves(spline_de, top_n = 4, ncol = 2)
+p
+}

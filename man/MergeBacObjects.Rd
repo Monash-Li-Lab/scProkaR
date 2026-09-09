@@ -26,3 +26,28 @@ integration.
 By default the function keeps the intersection of genes across inputs, which
 is the safest choice before integration.
 }
+\examples{
+set.seed(1)
+genes_a <- paste0("gene", 1:30)
+genes_b <- paste0("gene", 11:40)
+cells <- paste0("cell", seq_len(20))
+counts_a <- matrix(
+    rpois(length(genes_a) * 20, lambda = 4),
+    nrow = length(genes_a),
+    dimnames = list(genes_a, cells)
+)
+counts_b <- matrix(
+    rpois(length(genes_b) * 20, lambda = 4),
+    nrow = length(genes_b),
+    dimnames = list(genes_b, cells)
+)
+
+sce_a <- CreateBacObject(counts_a, sample_id_value = "sampleA")
+sce_b <- CreateBacObject(counts_b, sample_id_value = "sampleB")
+
+## Keep only the genes shared by both samples.
+merged <- MergeBacObjects(sce_a, sce_b, gene_mode = "intersect")
+dim(merged)
+table(merged$sample_id)
+head(colnames(merged), 3)
+}

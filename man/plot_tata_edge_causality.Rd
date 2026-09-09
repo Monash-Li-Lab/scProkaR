@@ -21,3 +21,18 @@ A \code{ggplot2} object.
 Visualize how topology support and temporal evidence combine for each
 cluster-cluster edge in the abstract TATA graph.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3)
+
+# All candidate edges, showing which ones survived pruning.
+p <- plot_tata_edge_causality(tata)
+
+# Retained edges only, labelled by their inferred direction.
+p_kept <- plot_tata_edge_causality(tata, kept_only = TRUE,
+    label_edges = TRUE)
+p_kept
+}

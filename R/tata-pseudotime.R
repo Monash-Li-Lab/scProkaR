@@ -20,6 +20,23 @@
 #' @return A list with root cluster, cluster pseudotime table, raw cell
 #'   pseudotime, scaled cell pseudotime, and the within-cluster step size.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+#' tata <- run_tata(sce, dimred = "PCA", k = 15)
+#'
+#' # Recompute pseudotime directly from the abstracted cluster graph.
+#' pt <- compute_tata_pseudotime(
+#'     cluster_graph = tata$cluster_graph,
+#'     sce = tata$sce,
+#'     cluster_col = "cluster",
+#'     time_col = "timepoint"
+#' )
+#'
+#' pt$root_cluster
+#' head(pt$cluster_pseudotime)
+#' summary(pt$cell_pseudotime_scaled)
 compute_tata_pseudotime <- function(
     cluster_graph,
     sce,

@@ -14,7 +14,7 @@
 #' @export
 #'
 #' @examples
-#' sce <- simulate_tata_sce(n_cells = 400, n_features = 60, seed = 1)
+#' sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
 #' knn <- build_knn_graph(sce, dimred = "PCA", k = 10)
 #' igraph::vcount(knn$graph)
 build_knn_graph <- function(
@@ -70,22 +70,19 @@ build_knn_graph <- function(
 #' - `"louvain"`: fast modularity-based community detection.
 #' - `"leiden"`: Leiden clustering if supported by the installed `igraph`.
 #' - `"walktrap"`: random-walk clustering that can produce broader partitions.
-#' @param seed Random seed.
 #'
 #' @return A factor of inferred cluster labels.
 #' @export
 #'
 #' @examples
-#' sce <- simulate_tata_sce(n_cells = 400, n_features = 60, seed = 1)
+#' sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
 #' knn <- build_knn_graph(sce, dimred = "PCA", k = 10)
-#' clusters <- cluster_graph_states(knn$graph, method = "louvain", seed = 1)
+#' clusters <- cluster_graph_states(knn$graph, method = "louvain")
 #' table(clusters)
 cluster_graph_states <- function(
     cell_graph,
-    method = c("louvain", "leiden", "walktrap"),
-    seed = 1) {
+    method = c("louvain", "leiden", "walktrap")) {
   method <- match.arg(method)
-  set.seed(seed)
 
   if (!inherits(cell_graph, "igraph")) {
     stop("`cell_graph` must be an igraph object.", call. = FALSE)

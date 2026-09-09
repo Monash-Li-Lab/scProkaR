@@ -33,3 +33,14 @@ A \code{ggplot2} object.
 Plot one panel per terminal branch, colored by the corresponding TATA branch
 probability.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3)
+
+# One panel per terminal branch, coloured by branch probability.
+p <- plot_tata_branch_probabilities(tata, dimred = "UMAP", ncol = 2)
+p
+}

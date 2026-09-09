@@ -315,6 +315,32 @@
 #' @return A list containing the fitted edgeR objects, contrast matrix, result
 #'   tables, and analysis settings.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600, n_features = 60, n_pcs = 10
+#' )
+#' sce$replicate <- rep(paste0("rep", 1:3), length.out = ncol(sce))
+#'
+#' pb <- aggregate_pseudobulk(
+#'     sce,
+#'     sample_cols = c("condition", "timepoint", "replicate"),
+#'     aggregation = "sum",
+#'     min_cells = 5
+#' )
+#' pb <- normalize_pseudobulk(pb, method = "TMM")
+#'
+#' # Compare every timepoint against the baseline, adjusting for drug.
+#' de <- run_edger_pairwise_de(
+#'     pb,
+#'     group_col = "timepoint",
+#'     covariates = "condition",
+#'     contrast_type = "reference"
+#' )
+#' names(de$tables)
+#' head(de$tables[["24_vs_0"]][, c("gene", "logFC", "FDR", "significant")])
+#' table(de$combined_table$contrast, de$combined_table$significant)
 run_edger_pairwise_de <- function(
     pb,
     assay_name = "counts",
@@ -475,6 +501,37 @@ run_edger_pairwise_de <- function(
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600, n_features = 60, n_pcs = 10
+#' )
+#' sce$replicate <- rep(paste0("rep", 1:3), length.out = ncol(sce))
+#'
+#' pb <- aggregate_pseudobulk(
+#'     sce,
+#'     sample_cols = c("condition", "timepoint", "replicate"),
+#'     aggregation = "sum",
+#'     min_cells = 5
+#' )
+#' pb <- normalize_pseudobulk(pb, method = "TMM")
+#'
+#' de <- run_edger_pairwise_de(
+#'     pb,
+#'     group_col = "timepoint",
+#'     covariates = "condition",
+#'     contrast_type = "reference"
+#' )
+#'
+#' p <- plot_pairwise_de_volcano(
+#'     de,
+#'     contrast = "120_vs_0",
+#'     fdr_cutoff = 0.05,
+#'     lfc_cutoff = 0.25,
+#'     top_n_labels = 5
+#' )
+#' p
 plot_pairwise_de_volcano <- function(
     de_result,
     contrast = NULL,
@@ -543,6 +600,31 @@ plot_pairwise_de_volcano <- function(
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600, n_features = 60, n_pcs = 10
+#' )
+#' sce$replicate <- rep(paste0("rep", 1:3), length.out = ncol(sce))
+#'
+#' pb <- aggregate_pseudobulk(
+#'     sce,
+#'     sample_cols = c("condition", "timepoint", "replicate"),
+#'     aggregation = "sum",
+#'     min_cells = 5
+#' )
+#' pb <- normalize_pseudobulk(pb, method = "TMM")
+#'
+#' de <- run_edger_pairwise_de(
+#'     pb,
+#'     group_col = "timepoint",
+#'     covariates = "condition",
+#'     contrast_type = "reference"
+#' )
+#'
+#' p <- plot_pairwise_de_ma(de, contrast = "120_vs_0", fdr_cutoff = 0.05)
+#' p
 plot_pairwise_de_ma <- function(
     de_result,
     contrast = NULL,
@@ -725,6 +807,34 @@ plot_pairwise_de_ma <- function(
 #' @return A list containing condition-specific edgeR fits, tables of temporal
 #'   DE genes, and fitted curve data for plotting.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600, n_features = 60, n_pcs = 10
+#' )
+#' sce$replicate <- rep(paste0("rep", 1:3), length.out = ncol(sce))
+#'
+#' pb <- aggregate_pseudobulk(
+#'     sce,
+#'     sample_cols = c("condition", "timepoint", "replicate"),
+#'     aggregation = "sum",
+#'     min_cells = 5
+#' )
+#' pb <- normalize_pseudobulk(pb, method = "TMM")
+#'
+#' # Six timepoints per drug, so a natural spline in time is estimable.
+#' spline_de <- run_edger_spline_de(
+#'     pb,
+#'     time_col = "timepoint",
+#'     condition_col = "condition",
+#'     df = 3,
+#'     curve_grid_length = 50
+#' )
+#' names(spline_de$by_condition)
+#' head(spline_de$combined_table[, c("gene", "FDR", "condition")])
+#' table(spline_de$combined_table$condition,
+#'     spline_de$combined_table$significant)
 run_edger_spline_de <- function(
     pb,
     time_col = "timepoint",
@@ -884,6 +994,33 @@ run_edger_spline_de <- function(
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600, n_features = 60, n_pcs = 10
+#' )
+#' sce$replicate <- rep(paste0("rep", 1:3), length.out = ncol(sce))
+#'
+#' pb <- aggregate_pseudobulk(
+#'     sce,
+#'     sample_cols = c("condition", "timepoint", "replicate"),
+#'     aggregation = "sum",
+#'     min_cells = 5
+#' )
+#' pb <- normalize_pseudobulk(pb, method = "TMM")
+#'
+#' spline_de <- run_edger_spline_de(
+#'     pb,
+#'     time_col = "timepoint",
+#'     condition_col = "condition",
+#'     df = 3,
+#'     curve_grid_length = 50
+#' )
+#'
+#' # Top temporally variable genes, overlaid across the three drugs.
+#' p <- plot_time_series_deg_curves(spline_de, top_n = 4, ncol = 2)
+#' p
 plot_time_series_deg_curves <- function(
     spline_result,
     genes = NULL,
@@ -989,6 +1126,37 @@ plot_time_series_deg_curves <- function(
 #' @return A list with the pseudobulk object, the DE result, and workflow
 #'   settings.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 600, n_features = 60, n_pcs = 10
+#' )
+#' sce$replicate <- rep(paste0("rep", 1:3), length.out = ncol(sce))
+#'
+#' # Pseudobulk aggregation plus pairwise edgeR contrasts in one call.
+#' pairwise_res <- run_scproka_de(
+#'     sce,
+#'     mode = "pairwise",
+#'     sample_cols = c("condition", "timepoint", "replicate"),
+#'     min_cells = 5,
+#'     group_col = "timepoint",
+#'     covariates = "condition"
+#' )
+#' dim(pairwise_res$pseudobulk)
+#' names(pairwise_res$de_result$tables)
+#'
+#' # The same pseudobulk design analysed as a spline time series.
+#' ts_res <- run_scproka_de(
+#'     sce,
+#'     mode = "time_series",
+#'     sample_cols = c("condition", "timepoint", "replicate"),
+#'     min_cells = 5,
+#'     time_col = "timepoint",
+#'     condition_col = "condition",
+#'     curve_grid_length = 50
+#' )
+#' head(ts_res$de_result$combined_table[, c("gene", "FDR", "condition")])
 run_scproka_de <- function(
     sce,
     mode = c("pairwise", "time_series"),

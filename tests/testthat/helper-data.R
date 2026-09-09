@@ -80,11 +80,11 @@ make_toy_multidrug_sce <- function(
     n_cells = 900,
     n_features = 70,
     seed = 1) {
+  set.seed(seed)
   simulate_tata_multidrug_sce(
     n_cells = n_cells,
     n_features = n_features,
-    n_pcs = 10,
-    seed = seed
+    n_pcs = 10
   )
 }
 

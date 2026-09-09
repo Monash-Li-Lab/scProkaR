@@ -41,3 +41,19 @@ For ordered cluster pairs with increasing median experimental time, measure
 whether the directed cluster graph supports reachability in the forward
 direction.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(n_cells = 600, n_features = 60,
+    n_pcs = 10)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15)
+
+reachability <- directed_reachability_concordance(
+    cluster_graph = tata$cluster_graph,
+    clusters = tata$sce$cluster,
+    timepoint = tata$sce$timepoint
+)
+reachability$summary
+
+# Cluster pairs separated by at least one full sampling interval.
+head(reachability$pair_table[reachability$pair_table$time_gap >= 24, ])
+}

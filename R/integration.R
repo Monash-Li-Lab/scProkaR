@@ -14,6 +14,37 @@
 #'
 #' @return A `SingleCellExperiment` with an integrated reduced dimension.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 300, n_features = 60, n_pcs = 10
+#' )
+#' # Assign a technical batch label to integrate over.
+#' sce$batch <- rep(c("batch1", "batch2"), length.out = ncol(sce))
+#'
+#' if (requireNamespace("batchelor", quietly = TRUE)) {
+#'     sce <- IntegrateBacData(
+#'         sce,
+#'         batch_col = "batch",
+#'         method = "mnn",
+#'         dims = 1:8
+#'     )
+#'     print(SingleCellExperiment::reducedDimNames(sce))
+#' }
+#'
+#' if (requireNamespace("harmony", quietly = TRUE)) {
+#'     sce <- IntegrateBacData(
+#'         sce,
+#'         batch_col = "batch",
+#'         method = "harmony",
+#'         dims = 1:8
+#'     )
+#'     harmony_emb <- SingleCellExperiment::reducedDim(
+#'         sce, "integrated_harmony"
+#'     )
+#'     print(dim(harmony_emb))
+#' }
 IntegrateBacData <- function(
     sce,
     batch_col,
@@ -102,12 +133,26 @@ IntegrateBacData <- function(
 #' @param n_neighbors Number of neighbours passed to `uwot::umap()`.
 #' @param min_dist UMAP `min_dist`.
 #' @param metric Distance metric passed to `uwot::umap()`.
-#' @param seed Random seed for reproducibility.
 #' @param ... Additional arguments passed to `uwot::umap()`.
 #'
 #' @return A `SingleCellExperiment` with the computed UMAP stored in
 #'   `reducedDims(sce)`.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+#'
+#' if (requireNamespace("uwot", quietly = TRUE)) {
+#'     sce <- RunIntegratedUMAP(
+#'         sce,
+#'         reduction = "PCA",
+#'         umap_name = "umap_pca",
+#'         n_neighbors = 15
+#'     )
+#'     print(SingleCellExperiment::reducedDimNames(sce))
+#'     print(head(SingleCellExperiment::reducedDim(sce, "umap_pca"), 3))
+#' }
 RunIntegratedUMAP <- function(
     sce,
     reduction,
@@ -115,7 +160,6 @@ RunIntegratedUMAP <- function(
     n_neighbors = 30,
     min_dist = 0.3,
     metric = "cosine",
-    seed = 1,
     ...
 ) {
   .scprokar_require("uwot", "RunIntegratedUMAP()")
@@ -134,7 +178,6 @@ RunIntegratedUMAP <- function(
   }
   n_neighbors <- min(n_neighbors, nrow(emb) - 1L)
 
-  set.seed(seed)
   umap <- uwot::umap(
     emb,
     n_neighbors = n_neighbors,
@@ -179,10 +222,26 @@ RunIntegratedUMAP <- function(
 #' @param resolution Cluster granularity parameter. This is analogous to
 #'   Seurat's `resolution`: higher values typically produce more clusters. It is
 #'   used when the selected graph clustering algorithm supports it.
-#' @param seed Random seed used when graph construction requires a fallback.
 #'
 #' @return A `SingleCellExperiment` with cluster labels added to `colData(sce)`.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 300, n_features = 60, n_pcs = 10
+#' )
+#' sce <- RunIntegratedClustering(
+#'     sce,
+#'     reduction = "PCA",
+#'     cluster_col = "pca_clusters",
+#'     dims = 1:8,
+#'     k = 15,
+#'     algorithm = "louvain",
+#'     resolution = 0.8
+#' )
+#' print(table(sce$pca_clusters))
+#' print(table(sce$pca_clusters, sce$condition))
 RunIntegratedClustering <- function(
     sce,
     reduction = NULL,
@@ -190,8 +249,7 @@ RunIntegratedClustering <- function(
     dims = NULL,
     k = 20,
     algorithm = c("louvain", "walktrap", "leiden"),
-    resolution = 0.8,
-    seed = 1
+    resolution = 0.8
 ) {
   .scprokar_require("igraph", "RunIntegratedClustering()")
   algorithm <- match.arg(algorithm)
@@ -213,7 +271,7 @@ RunIntegratedClustering <- function(
   }
 
   k <- max(1L, min(as.integer(k), nrow(emb) - 1L))
-  graph_data <- .scprokar_build_cluster_graph(emb, k = k, seed = seed)
+  graph_data <- .scprokar_build_cluster_graph(emb, k = k)
   graph <- graph_data$graph
 
   membership <- if (igraph::gsize(graph) == 0L) {
@@ -280,10 +338,33 @@ RunIntegratedClustering <- function(
 #'   gradient vector.
 #' @param facet_by Optional `colData(sce)` column used to facet the plot.
 #' @param shuffle Whether to shuffle plotting order before drawing points.
-#' @param seed Random seed used when `shuffle = TRUE`.
 #'
 #' @return A `ggplot2` object.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 300, n_features = 60, n_pcs = 10
+#' )
+#' plot <- PlotReduction(
+#'     sce,
+#'     reduction = "PCA",
+#'     colour_by = "condition",
+#'     point_size = 0.6,
+#'     shuffle = TRUE
+#' )
+#' print(class(plot))
+#' print(plot$labels[c("x", "y")])
+#'
+#' # Facet the same embedding by sampling time.
+#' faceted <- PlotReduction(
+#'     sce,
+#'     reduction = "PCA",
+#'     colour_by = "condition",
+#'     facet_by = "timepoint"
+#' )
+#' print(nrow(faceted$data))
 PlotReduction <- function(
     sce,
     reduction,
@@ -292,8 +373,7 @@ PlotReduction <- function(
     point_alpha = 0.8,
     palette = NULL,
     facet_by = NULL,
-    shuffle = FALSE,
-    seed = 1
+    shuffle = FALSE
 ) {
   reduction_name <- .scprokar_resolve_reduction_name(sce, reduction)
   emb <- as.matrix(SingleCellExperiment::reducedDim(sce, reduction_name))
@@ -326,7 +406,6 @@ PlotReduction <- function(
   }
 
   if (isTRUE(shuffle)) {
-    set.seed(seed)
     plot_df <- plot_df[sample(seq_len(nrow(plot_df))), , drop = FALSE]
   }
 
@@ -389,10 +468,38 @@ PlotReduction <- function(
 #' @param point_size Point size passed to [PlotReduction()].
 #' @param point_alpha Point alpha passed to [PlotReduction()].
 #' @param shuffle Whether to shuffle plotting order.
-#' @param seed Random seed used when `shuffle = TRUE`.
 #'
 #' @return A named list of `ggplot2` objects.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_multidrug_sce(
+#'     n_cells = 300, n_features = 60, n_pcs = 10
+#' )
+#' sce$batch <- rep(c("batch1", "batch2"), length.out = ncol(sce))
+#'
+#' # Any corrected embedding can stand in for the integrated view; here a
+#' # toy correction is registered so the example needs no extra backend.
+#' corrected <- SingleCellExperiment::reducedDim(sce, "PCA")[, 1:2]
+#' is_batch2 <- sce$batch == "batch2"
+#' corrected[is_batch2, ] <- corrected[is_batch2, ] * 0.9
+#' sce <- RegisterIntegrationEmbedding(
+#'     sce,
+#'     embedding = corrected,
+#'     method_name = "toy"
+#' )
+#'
+#' plots <- PlotIntegrationOverview(
+#'     sce,
+#'     unintegrated_reduction = "PCA",
+#'     integrated_reduction = "integrated_toy",
+#'     batch_col = "batch",
+#'     label_col = "condition",
+#'     split_by = "batch"
+#' )
+#' print(names(plots))
+#' print(class(plots$integrated_by_batch))
 PlotIntegrationOverview <- function(
     sce,
     unintegrated_reduction = "umap",
@@ -402,8 +509,7 @@ PlotIntegrationOverview <- function(
     split_by = NULL,
     point_size = 0.4,
     point_alpha = 0.8,
-    shuffle = FALSE,
-    seed = 1
+    shuffle = FALSE
 ) {
   .scprokar_match_columns(sce, batch_col, label = "batch")
   if (!is.null(label_col)) {
@@ -425,8 +531,7 @@ PlotIntegrationOverview <- function(
       colour_by = batch_col,
       point_size = point_size,
       point_alpha = point_alpha,
-      shuffle = shuffle,
-      seed = seed
+      shuffle = shuffle
     ),
     integrated_by_batch = PlotReduction(
       sce,
@@ -434,8 +539,7 @@ PlotIntegrationOverview <- function(
       colour_by = batch_col,
       point_size = point_size,
       point_alpha = point_alpha,
-      shuffle = shuffle,
-      seed = seed
+      shuffle = shuffle
     )
   )
 
@@ -446,8 +550,7 @@ PlotIntegrationOverview <- function(
       colour_by = label_col,
       point_size = point_size,
       point_alpha = point_alpha,
-      shuffle = shuffle,
-      seed = seed
+      shuffle = shuffle
     )
     plots$integrated_by_label <- PlotReduction(
       sce,
@@ -455,8 +558,7 @@ PlotIntegrationOverview <- function(
       colour_by = label_col,
       point_size = point_size,
       point_alpha = point_alpha,
-      shuffle = shuffle,
-      seed = seed
+      shuffle = shuffle
     )
   }
 
@@ -469,8 +571,7 @@ PlotIntegrationOverview <- function(
       facet_by = split_by,
       point_size = point_size,
       point_alpha = point_alpha,
-      shuffle = shuffle,
-      seed = seed
+      shuffle = shuffle
     )
   }
 
@@ -492,6 +593,24 @@ PlotIntegrationOverview <- function(
 #'
 #' @return A `SingleCellExperiment` with the external embedding registered.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+#'
+#' # Stand-in for an embedding produced by an external integration tool.
+#' external <- SingleCellExperiment::reducedDim(sce, "PCA")[, 1:2]
+#' colnames(external) <- c("EXT_1", "EXT_2")
+#'
+#' sce <- RegisterIntegrationEmbedding(
+#'     sce,
+#'     embedding = external,
+#'     method_name = "my_method",
+#'     metadata = list(software = "external_tool", version = "1.0")
+#' )
+#' print(SingleCellExperiment::reducedDimNames(sce))
+#' record <- S4Vectors::metadata(sce)$SCProkaR$integration$results
+#' print(record$my_method)
 RegisterIntegrationEmbedding <- function(
     sce,
     embedding,
@@ -647,7 +766,7 @@ RegisterIntegrationEmbedding <- function(
 }
 
 #' @keywords internal
-.scprokar_build_cluster_graph <- function(emb, k, seed = 1) {
+.scprokar_build_cluster_graph <- function(emb, k) {
   n <- nrow(emb)
 
   if (requireNamespace("RANN", quietly = TRUE)) {
@@ -655,7 +774,6 @@ RegisterIntegrationEmbedding <- function(
     idx <- nn$nn.idx[, -1, drop = FALSE]
     dists <- nn$nn.dists[, -1, drop = FALSE]
   } else {
-    set.seed(seed)
     dmat <- as.matrix(stats::dist(emb))
     idx <- t(apply(dmat, 1, function(x) order(x)[2:(k + 1)]))
     dists <- matrix(

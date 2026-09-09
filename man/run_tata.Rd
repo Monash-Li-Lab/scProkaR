@@ -25,8 +25,7 @@ run_tata(
   refine_min_split_fraction = 0.2,
   do_branch_probs = TRUE,
   expected_branches = NULL,
-  n_pcs_if_missing = 20,
-  seed = 1
+  n_pcs_if_missing = 20
 )
 }
 \arguments{
@@ -95,8 +94,6 @@ supplied, TATA uses it to guide terminal-state selection for downstream
 branch probabilities and branch assignment.}
 
 \item{n_pcs_if_missing}{Number of PCs to compute if \code{dimred} is missing.}
-
-\item{seed}{Random seed.}
 }
 \value{
 A list containing the updated \code{sce}, cell graph, adjacency matrix,
@@ -108,7 +105,7 @@ Run Time Aware Trajectory Analysis (TATA) end-to-end on a
 \code{SingleCellExperiment}.
 }
 \examples{
-sce <- simulate_tata_sce(n_cells = 500, n_features = 60, seed = 1)
-tata <- run_tata(sce, dimred = "PCA", k = 12, seed = 1)
+sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+tata <- run_tata(sce, dimred = "PCA", k = 12)
 names(tata)
 }

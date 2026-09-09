@@ -20,3 +20,14 @@ A data frame of observed edges, expected edges, and topology weights.
 For each cluster pair \verb{(a, b)}, count observed inter-cluster edges and
 compare them to a simple degree-aware expectation.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+knn <- build_knn_graph(sce, dimred = "PCA", k = 12)
+clusters <- cluster_graph_states(knn$graph, method = "louvain")
+topology_table <- compute_topology_weights(
+    adjacency = knn$adjacency,
+    clusters = clusters
+)
+head(topology_table[order(-topology_table$topology_weight), ])
+}

@@ -11,8 +11,7 @@ RunIntegratedClustering(
   dims = NULL,
   k = 20,
   algorithm = c("louvain", "walktrap", "leiden"),
-  resolution = 0.8,
-  seed = 1
+  resolution = 0.8
 )
 }
 \arguments{
@@ -33,8 +32,6 @@ prefers a stored \verb{integrated_*} embedding.}
 \item{resolution}{Cluster granularity parameter. This is analogous to
 Seurat's \code{resolution}: higher values typically produce more clusters. It is
 used when the selected graph clustering algorithm supports it.}
-
-\item{seed}{Random seed used when graph construction requires a fallback.}
 }
 \value{
 A \code{SingleCellExperiment} with cluster labels added to \code{colData(sce)}.
@@ -42,4 +39,21 @@ A \code{SingleCellExperiment} with cluster labels added to \code{colData(sce)}.
 \description{
 Builds a k-nearest-neighbour graph on a corrected embedding and detects
 communities for downstream trajectory and pseudobulk workflows.
+}
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 300, n_features = 60, n_pcs = 10
+)
+sce <- RunIntegratedClustering(
+    sce,
+    reduction = "PCA",
+    cluster_col = "pca_clusters",
+    dims = 1:8,
+    k = 15,
+    algorithm = "louvain",
+    resolution = 0.8
+)
+print(table(sce$pca_clusters))
+print(table(sce$pca_clusters, sce$condition))
 }

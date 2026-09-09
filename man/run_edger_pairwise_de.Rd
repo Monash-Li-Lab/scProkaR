@@ -75,3 +75,29 @@ Fit a quasi-likelihood negative-binomial model with edgeR and test pairwise
 contrasts between groups such as timepoints, treatments, or composite
 treatment-timepoint groups.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600, n_features = 60, n_pcs = 10
+)
+sce$replicate <- rep(paste0("rep", 1:3), length.out = ncol(sce))
+
+pb <- aggregate_pseudobulk(
+    sce,
+    sample_cols = c("condition", "timepoint", "replicate"),
+    aggregation = "sum",
+    min_cells = 5
+)
+pb <- normalize_pseudobulk(pb, method = "TMM")
+
+# Compare every timepoint against the baseline, adjusting for drug.
+de <- run_edger_pairwise_de(
+    pb,
+    group_col = "timepoint",
+    covariates = "condition",
+    contrast_type = "reference"
+)
+names(de$tables)
+head(de$tables[["24_vs_0"]][, c("gene", "logFC", "FDR", "significant")])
+table(de$combined_table$contrast, de$combined_table$significant)
+}

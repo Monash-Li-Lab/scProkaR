@@ -1,52 +1,55 @@
+## R session artefacts
 .Rproj.user/
 .Rhistory
 .RData
 .Ruserdata
 .Rapp.history
+.RDataTmp*
+*.Rproj
+.Rprofile
+
+## OS / editor artefacts
+.DS_Store
 .ipynb_checkpoints/
 __pycache__/
 .quarto/
-.DS_Store
 
-# Package build artefacts
+## Package build artefacts
 *.tar.gz
 /*.Rcheck/
+*.BiocCheck/
+inst/doc/
+doc/
+Meta/
 
-# Local data / model artefacts
-*.rds
-*.h5ad
-*.pt
-
-# Rendered document artefacts
+## Rendered document artefacts
 README.html
 *_cache/
 *_files/
 *_freeze/
-
-analysis/figure/
-analysis/*.png
-analysis/*.html
-analysis/*_cache/
-analysis/site_libs/
-
 vignettes/*.html
+vignettes/*.pdf
 vignettes/*_files/
 
-benchmarks/
-benchmarks/*.html
-benchmarks/*.pdf
-benchmarks/*.pptx
-benchmarks/data/
-benchmarks/results/
-benchmarks/real_data/
-benchmarks/real_results/
-
-# Local project scratch
+## Website / project tooling kept off the Bioconductor submission branch
+docs/
+pkgdown/
+_pkgdown.yml
+_workflowr.yml
+.github/
+analysis/
+code/
 output/
-backups/
-legacy/
-sample1.rds
-sample2.rds
 manuscript/
-manuscript/~$*.docx
-.RDataTmp*
+benchmarks/
+legacy/
+backups/
+LICENSE.md
+README.Rmd
+.gitattributes
+
+## Local data / model artefacts
+*.rds
+*.h5ad
+*.pt
+!data/*.rda

@@ -4,18 +4,33 @@
 \alias{cluster_tata_gene_trends}
 \title{Cluster TATA gene trends by shape}
 \usage{
-cluster_tata_gene_trends(trend_result, n_clusters = 4, seed = 1)
+cluster_tata_gene_trends(trend_result, n_clusters = 4)
 }
 \arguments{
 \item{trend_result}{Result list returned by \code{compute_tata_gene_trends()}.}
 
 \item{n_clusters}{Number of trend clusters.}
-
-\item{seed}{Random seed for k-means initialization.}
 }
 \value{
 A data frame mapping genes to trend clusters.
 }
 \description{
 Cluster branch-specific fitted gene trends by shape using k-means.
+}
+\examples{
+set.seed(1)
+sce <- simulate_tata_multidrug_sce(
+    n_cells = 600, n_features = 60, n_pcs = 10
+)
+tata <- run_tata(sce, dimred = "PCA", time_col = "timepoint", k = 15,
+    expected_branches = 3)
+trends <- compute_tata_gene_trends(
+    tata,
+    genes = head(rownames(tata$sce), 12),
+    grid_length = 30
+)
+set.seed(2)
+trend_clusters <- cluster_tata_gene_trends(trends, n_clusters = 3)
+head(trend_clusters)
+table(trend_clusters$trend_cluster)
 }

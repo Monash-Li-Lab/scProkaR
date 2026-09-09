@@ -22,18 +22,17 @@ raw counts together with \code{sample}, \code{clusters}, \code{treatments}, and
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://monash-li-lab.github.io/scProka/}
-  \item \url{https://github.com/Monash-Li-Lab/scProka}
-  \item Report bugs at \url{https://github.com/Monash-Li-Lab/scProka/issues}
+  \item \url{https://github.com/Monash-Li-Lab/SCProkaR}
+  \item Report bugs at \url{https://github.com/Monash-Li-Lab/SCProkaR/issues}
 }
 
 }
 \author{
-\strong{Maintainer}: Jinxin Zhao \email{jinxin.zhao@example.org}
+\strong{Maintainer}: Ning Liu \email{ning.liu@adelaide.edu.au}
 
 Authors:
 \itemize{
-  \item Ning Liu \email{ning.liu@adelaide.edu.au}
+  \item Jinxin Zhao
 }
 
 }

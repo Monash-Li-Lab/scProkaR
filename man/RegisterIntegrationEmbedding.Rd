@@ -32,3 +32,21 @@ Adds a precomputed embedding to \code{reducedDims(sce)} and records it in
 \code{metadata(sce)$SCProkaR$integration}, allowing custom integration outputs to
 be benchmarked alongside native SCProkaR methods.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+
+# Stand-in for an embedding produced by an external integration tool.
+external <- SingleCellExperiment::reducedDim(sce, "PCA")[, 1:2]
+colnames(external) <- c("EXT_1", "EXT_2")
+
+sce <- RegisterIntegrationEmbedding(
+    sce,
+    embedding = external,
+    method_name = "my_method",
+    metadata = list(software = "external_tool", version = "1.0")
+)
+print(SingleCellExperiment::reducedDimNames(sce))
+record <- S4Vectors::metadata(sce)$SCProkaR$integration$results
+print(record$my_method)
+}

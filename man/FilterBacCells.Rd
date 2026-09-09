@@ -31,3 +31,33 @@ A filtered \code{SingleCellExperiment}.
 Applies simple threshold-based filtering to QC metrics produced by
 \code{RunBacQC()}.
 }
+\examples{
+set.seed(1)
+genes <- c("rrsA", "rrlB", "rplA", "rpsB", paste0("gene", 1:26))
+counts <- matrix(
+    rpois(length(genes) * 50, lambda = 3),
+    nrow = length(genes),
+    dimnames = list(genes, paste0("cell", seq_len(50)))
+)
+sce <- SingleCellExperiment::SingleCellExperiment(
+    assays = list(counts = counts)
+)
+sce <- RunBacQC(sce)
+
+filtered <- FilterBacCells(
+    sce,
+    min_counts = 80,
+    min_features = 20,
+    max_rrna_fraction = 0.2
+)
+c(before = ncol(sce), after = ncol(filtered))
+
+# A custom filter may be given as a function of colData()
+custom <- FilterBacCells(
+    sce,
+    custom_filter = function(cd) {
+        cd$detected_features >= stats::median(cd$detected_features)
+    }
+)
+ncol(custom)
+}

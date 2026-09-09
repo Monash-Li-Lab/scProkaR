@@ -21,3 +21,16 @@ For each inter-cluster cell-cell graph edge, compute \code{sign(t_b - t_a)} afte
 orienting the cluster pair as \verb{(cluster_a, cluster_b)}. The mean sign is the
 temporal flow score.
 }
+\examples{
+set.seed(1)
+sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+knn <- build_knn_graph(sce, dimred = "PCA", k = 12)
+clusters <- cluster_graph_states(knn$graph, method = "louvain")
+time_table <- compute_time_weights(
+    adjacency = knn$adjacency,
+    clusters = clusters,
+    timepoint = SummarizedExperiment::colData(sce)$timepoint
+)
+head(time_table[, c("cluster_a", "cluster_b", "flow_score",
+    "time_weight")])
+}

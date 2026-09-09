@@ -4,12 +4,7 @@
 \alias{simulate_tata_spiral_sce}
 \title{Simulate an extreme spiral-plus-divergent TATA dataset}
 \usage{
-simulate_tata_spiral_sce(
-  n_cells = 5000,
-  n_features = 100,
-  n_pcs = 20,
-  seed = 1
-)
+simulate_tata_spiral_sce(n_cells = 5000, n_features = 100, n_pcs = 20)
 }
 \arguments{
 \item{n_cells}{Number of cells to simulate.}
@@ -17,8 +12,6 @@ simulate_tata_spiral_sce(
 \item{n_features}{Number of features to simulate.}
 
 \item{n_pcs}{Number of principal components to store.}
-
-\item{seed}{Random seed.}
 }
 \value{
 A \code{SingleCellExperiment}.
@@ -34,6 +27,6 @@ smooth expression programs so that neighboring cells along the path remain
 transcriptionally similar.
 }
 \examples{
-sce <- simulate_tata_spiral_sce(n_cells = 1000, n_features = 80, seed = 1)
+sce <- simulate_tata_spiral_sce(n_cells = 1000, n_features = 80)
 SingleCellExperiment::reducedDimNames(sce)
 }

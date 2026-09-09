@@ -1,53 +1,65 @@
 Package: SCProkaR
 Type: Package
 Title: Microbial Single-Cell RNA-Seq Analysis for Bacterial Systems
-Version: 0.1.0
+Version: 0.99.0
 Authors@R:
     c(
-      person("Jinxin", "Zhao", , "jinxin.zhao@example.org", role = c("aut", "cre")),
-      person("Ning", "Liu", , "ning.liu@adelaide.edu.au", role = "aut")
+      person("Ning", "Liu", email = "ning.liu@adelaide.edu.au",
+             role = c("aut", "cre")),
+      person("Jinxin", "Zhao", role = "aut")
     )
-Description: Provides a SingleCellExperiment-centered workflow for microbial
-    single-cell RNA-seq analysis. The package standardizes bacterial input
-    objects, computes quality-control metrics including rRNA fractions,
-    performs batch integration with multiple backends, benchmarks integrated
-    embeddings with scIB-inspired metrics, supports pseudobulk differential
-    expression with edgeR, and includes Time Aware Trajectory Analysis (TATA)
-    for time-informed trajectory abstraction.
+Description: SCProkaR provides a SingleCellExperiment-centred workflow for
+    microbial single-cell RNA sequencing data. It standardises bacterial
+    input objects from count matrices, 10x Genomics directories or Seurat
+    objects, and computes prokaryote-specific quality-control metrics such
+    as ribosomal RNA fraction. It performs batch integration with several
+    backends and scores the resulting embeddings with scIB-inspired
+    benchmarking metrics. It also supports pseudobulk differential
+    expression with edgeR and Time Aware Trajectory Analysis (TATA), a
+    time-informed trajectory abstraction for perturbation time courses.
 License: MIT + file LICENSE
+Encoding: UTF-8
 Depends:
-    R (>= 4.2)
+    R (>= 4.5.0)
 Imports:
     edgeR,
     ggplot2,
+    grDevices,
+    grid,
     igraph,
     Matrix,
+    methods,
     S4Vectors,
     SingleCellExperiment,
-    SummarizedExperiment
+    splines,
+    stats,
+    SummarizedExperiment,
+    utils
 Suggests:
     batchelor,
     BiocNeighbors,
-    FNN,
+    BiocSingular,
+    BiocStyle,
+    cluster,
     DropletUtils,
+    FNN,
     harmony,
     irlba,
     knitr,
     RANN,
     rmarkdown,
-    scater,
     scran,
     SeuratObject,
-    slingshot,
-    testthat,
+    testthat (>= 3.0.0),
     uwot
 VignetteBuilder: knitr
 Config/testthat/edition: 3
-biocViews: Software, SingleCell, DifferentialExpression, Clustering, GraphAndNetwork, Microbiome
-Encoding: UTF-8
+biocViews: Software, SingleCell, RNASeq, Transcriptomics, GeneExpression,
+    DifferentialExpression, Clustering, GraphAndNetwork, QualityControl,
+    MultipleComparison, Normalization, BatchEffect, DimensionReduction,
+    TimeCourse, Microbiome, Sequencing, Visualization
 LazyData: false
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
-URL: https://monash-li-lab.github.io/scProka/,
-    https://github.com/Monash-Li-Lab/scProka
-BugReports: https://github.com/Monash-Li-Lab/scProka/issues
+URL: https://github.com/Monash-Li-Lab/SCProkaR
+BugReports: https://github.com/Monash-Li-Lab/SCProkaR/issues

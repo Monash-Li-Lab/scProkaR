@@ -17,6 +17,37 @@
 #' @return A `SingleCellExperiment` when `store = TRUE`, otherwise a data frame
 #'   of QC metrics.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' genes <- c("rrsA", "rrlB", "rrfC", "rplA", "rpsB", paste0("gene", 1:25))
+#' counts <- matrix(
+#'     rpois(length(genes) * 40, lambda = 4),
+#'     nrow = length(genes),
+#'     dimnames = list(genes, paste0("cell", seq_len(40)))
+#' )
+#' sce <- SingleCellExperiment::SingleCellExperiment(
+#'     assays = list(counts = counts)
+#' )
+#'
+#' # rRNA and ribosomal protein features are matched on feature names
+#' sce <- RunBacQC(sce)
+#' head(SummarizedExperiment::colData(sce)[, c(
+#'     "total_counts", "detected_features", "rrna_fraction", "pct_ribo"
+#' )])
+#'
+#' # Return the QC table only, leaving the object untouched
+#' qc <- RunBacQC(sce, store = FALSE)
+#' summary(qc$rrna_fraction)
+#'
+#' # Feature classes stored in rowData() can be used instead of patterns
+#' SummarizedExperiment::rowData(sce)$gene_class <- ifelse(
+#'     rownames(sce) %in% c("rrsA", "rrlB", "rrfC", "gene1"),
+#'     "rrna",
+#'     "other"
+#' )
+#' qc_class <- RunBacQC(sce, gene_class_col = "gene_class", store = FALSE)
+#' summary(qc_class$rrna_fraction)
 RunBacQC <- function(
     sce,
     rrna_pattern = "^(rrs|rrl|rrf)",
@@ -96,6 +127,36 @@ RunBacQC <- function(
 #'
 #' @return A filtered `SingleCellExperiment`.
 #' @export
+#'
+#' @examples
+#' set.seed(1)
+#' genes <- c("rrsA", "rrlB", "rplA", "rpsB", paste0("gene", 1:26))
+#' counts <- matrix(
+#'     rpois(length(genes) * 50, lambda = 3),
+#'     nrow = length(genes),
+#'     dimnames = list(genes, paste0("cell", seq_len(50)))
+#' )
+#' sce <- SingleCellExperiment::SingleCellExperiment(
+#'     assays = list(counts = counts)
+#' )
+#' sce <- RunBacQC(sce)
+#'
+#' filtered <- FilterBacCells(
+#'     sce,
+#'     min_counts = 80,
+#'     min_features = 20,
+#'     max_rrna_fraction = 0.2
+#' )
+#' c(before = ncol(sce), after = ncol(filtered))
+#'
+#' # A custom filter may be given as a function of colData()
+#' custom <- FilterBacCells(
+#'     sce,
+#'     custom_filter = function(cd) {
+#'         cd$detected_features >= stats::median(cd$detected_features)
+#'     }
+#' )
+#' ncol(custom)
 FilterBacCells <- function(
     sce,
     min_counts = NULL,

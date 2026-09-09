@@ -1,0 +1,15 @@
+citHeader("To cite SCProkaR in publications, please use:")
+
+pkg_version <- if (!is.null(meta$Version)) meta$Version else "0.99.0"
+
+bibentry(
+    bibtype  = "Manual",
+    title    = "SCProkaR: Microbial Single-Cell RNA-Seq Analysis for Bacterial Systems",
+    author   = c(
+        person("Ning", "Liu"),
+        person("Jinxin", "Zhao")
+    ),
+    year     = "2026",
+    note     = paste("R package version", pkg_version),
+    url      = "https://github.com/Monash-Li-Lab/SCProkaR"
+)
