@@ -71,6 +71,9 @@ NULL
   if (inherits(x, "Matrix") && is.logical(x)) {
     x <- x * 1
   }
+  if (inherits(x, "Matrix")) {
+    x <- methods::as(x, "CsparseMatrix")
+  }
   methods::as(x, "dgCMatrix")
 }
 
@@ -203,8 +206,10 @@ NULL
     ord <- order(var_fit$bio, decreasing = TRUE)
   } else {
     logx <- SummarizedExperiment::assay(sce, "logcounts")
+    n_cells <- ncol(logx)
     center <- Matrix::rowMeans(logx)
-    variance <- Matrix::rowMeans((logx - center)^2)
+    mean_sq <- Matrix::rowSums(logx ^ 2) / max(n_cells, 1)
+    variance <- pmax(as.numeric(mean_sq) - as.numeric(center) ^ 2, 0)
     ord <- order(as.numeric(variance), decreasing = TRUE)
   }
 
@@ -227,20 +232,38 @@ NULL
     reduction_name = "PCA"
 ) {
   mat <- SummarizedExperiment::assay(sce, assay_name)[features, , drop = FALSE]
-  x <- t(as.matrix(mat))
-  x <- scale(x, center = TRUE, scale = TRUE)
-  x[is.na(x)] <- 0
-  rank_k <- min(ncomponents, max(1, ncol(x) - 1))
-  full_rank <- min(nrow(x), ncol(x))
+  x_sparse <- Matrix::t(.scprokar_as_dgC(mat))
+  rank_k <- min(ncomponents, max(1, ncol(x_sparse) - 1))
+  full_rank <- min(nrow(x_sparse), ncol(x_sparse))
+
   use_irlba <- requireNamespace("irlba", quietly = TRUE) &&
-    ncol(x) > 2 &&
-    rank_k < full_rank - 1 &&
-    rank_k < floor(full_rank * 0.5)
+    ncol(x_sparse) > 2 &&
+    rank_k < full_rank
 
   if (use_irlba) {
-    pcs <- irlba::prcomp_irlba(x, n = rank_k, center = FALSE, scale. = FALSE)
+    center <- Matrix::colMeans(x_sparse)
+    mean_sq <- Matrix::colMeans(x_sparse ^ 2)
+    scale_vec <- sqrt(pmax(mean_sq - center ^ 2, 0))
+    scale_vec[!is.finite(scale_vec) | scale_vec <= 0] <- 1
+
+    pcs <- irlba::prcomp_irlba(
+      x_sparse,
+      n = rank_k,
+      center = center,
+      scale. = scale_vec
+    )
   } else {
-    pcs <- stats::prcomp(x, rank. = rank_k, center = FALSE, scale. = FALSE)
+    if ((nrow(x_sparse) * ncol(x_sparse)) > 5e7) {
+      stop(
+        "Sparse-aware PCA requires the optional package 'irlba' for larger datasets. ",
+        "Install it or reduce the feature set before running `run_unintegrated = TRUE`.",
+        call. = FALSE
+      )
+    }
+    x_dense <- as.matrix(x_sparse)
+    x_dense <- scale(x_dense, center = TRUE, scale = TRUE)
+    x_dense[is.na(x_dense)] <- 0
+    pcs <- stats::prcomp(x_dense, rank. = rank_k, center = FALSE, scale. = FALSE)
   }
 
   emb <- pcs$x
@@ -272,6 +295,46 @@ NULL
       reduction_name = reduction_name
     )
   }
+  sce
+}
+
+#' @keywords internal
+.scprokar_run_unintegrated_workflow <- function(
+    sce,
+    feature_set = "hvg",
+    dims = 1:30,
+    cluster_col = "unintegrated_clusters",
+    umap_name = "umap.unintegrated",
+    k = 20,
+    resolution = 2,
+    algorithm = "louvain"
+) {
+  sce <- .scprokar_prepare_reduction(
+    sce,
+    assay_name = "counts",
+    feature_set = feature_set,
+    dims = dims,
+    reduction_name = "PCA"
+  )
+  sce <- RunIntegratedClustering(
+    sce,
+    reduction = "PCA",
+    cluster_col = cluster_col,
+    dims = dims,
+    k = k,
+    algorithm = algorithm,
+    resolution = resolution
+  )
+
+  if (requireNamespace("uwot", quietly = TRUE)) {
+    sce <- RunIntegratedUMAP(
+      sce,
+      reduction = "PCA",
+      umap_name = umap_name,
+      n_neighbors = k
+    )
+  }
+
   sce
 }
 

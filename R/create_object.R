@@ -5,14 +5,31 @@
 #' provenance used by downstream SCProkaR workflows.
 #'
 #' @param x A gene-by-cell count matrix, a `SingleCellExperiment`, or a loaded
-#'   Seurat object from an `.rds` file.
+#'   Seurat object from an `.rds` file, or a Cell Ranger output directory.
 #' @param counts_assay Assay name to use when `x` is a `SingleCellExperiment`.
 #' @param cell_metadata Optional cell-level metadata with one row per cell.
 #' @param feature_metadata Optional feature-level metadata with one row per gene.
+#' @param feature_name_col Optional `rowData` column to use as the primary
+#'   feature name when `x` is a `SingleCellExperiment` or 10x-derived object.
+#'   If `NULL`, SCProkaR will prefer common columns such as `Symbol`,
+#'   `gene_name`, or `feature_name` when available. For 10x-derived input,
+#'   `Symbol` is preferred by default when present.
 #' @param sample_col Optional sample identifier column in `cell_metadata`.
 #' @param batch_col Optional batch identifier column in `cell_metadata`.
 #' @param condition_col Optional condition column in `cell_metadata`.
 #' @param time_col Optional time or ordering column in `cell_metadata`.
+#' @param sample_id_value Optional fixed sample identifier to assign to all
+#'   cells during object creation. If `sample_col` is `NULL`, a `sample_id`
+#'   column is created automatically.
+#' @param batch_value Optional fixed batch identifier to assign to all cells
+#'   during object creation. If `batch_col` is `NULL`, a `batch` column is
+#'   created automatically.
+#' @param condition_value Optional fixed condition value to assign to all cells
+#'   during object creation. If `condition_col` is `NULL`, a `condition` column
+#'   is created automatically.
+#' @param time_value Optional fixed time value to assign to all cells during
+#'   object creation. If `time_col` is `NULL`, a `time` column is created
+#'   automatically.
 #' @param organism Organism label stored in package metadata.
 #' @param seurat_assay Assay name to extract when `x` is a Seurat object. If
 #'   `NULL`, the active/default Seurat assay is used.
@@ -21,6 +38,30 @@
 #' @param transfer_reductions Logical indicating whether existing Seurat
 #'   dimensional reductions (for example `pca` and `umap`) should be copied into
 #'   `reducedDims(sce)`.
+#' @param run_unintegrated Logical indicating whether to run a standard
+#'   unintegrated preprocessing workflow after object creation. This computes
+#'   normalized counts, identifies highly variable features, runs PCA, clusters
+#'   cells, and computes an unintegrated UMAP without requiring Seurat.
+#' @param unintegrated_feature_set Feature selection strategy passed to the
+#'   unintegrated PCA step. Defaults to `"hvg"`.
+#' @param unintegrated_dims Integer vector of dimensions to retain for PCA,
+#'   neighbor graph construction, clustering, and UMAP.
+#' @param unintegrated_cluster_col Column name used to store unintegrated
+#'   cluster labels in `colData(sce)`.
+#' @param unintegrated_umap_name Reduced-dimension name used to store the
+#'   unintegrated UMAP embedding.
+#' @param unintegrated_k Number of nearest neighbours used for unintegrated
+#'   graph construction and clustering.
+#' @param unintegrated_resolution Cluster granularity used for unintegrated
+#'   clustering. Higher values typically produce more clusters.
+#' @param unintegrated_algorithm Graph clustering backend for the unintegrated
+#'   workflow.
+#'
+#'
+#' For Cell Ranger / 10x input, users can pass the directory path directly.
+#' SCProkaR will import the matrix, standardize cell metadata, and by default
+#' use `rowData(sce)$Symbol` as the feature name column when that column is
+#' available. Set `feature_name_col` explicitly to override this behavior.
 #'
 #' @return A standardized `SingleCellExperiment`.
 #' @export
@@ -29,19 +70,39 @@ CreateBacObject <- function(
     counts_assay = "counts",
     cell_metadata = NULL,
     feature_metadata = NULL,
+    feature_name_col = NULL,
     sample_col = NULL,
     batch_col = NULL,
     condition_col = NULL,
     time_col = NULL,
+    sample_id_value = NULL,
+    batch_value = NULL,
+    condition_value = NULL,
+    time_value = NULL,
     organism = "bacteria",
     seurat_assay = NULL,
     seurat_layer = "counts",
-    transfer_reductions = TRUE
+    transfer_reductions = TRUE,
+    run_unintegrated = FALSE,
+    unintegrated_feature_set = c("hvg", "all"),
+    unintegrated_dims = 1:30,
+    unintegrated_cluster_col = "unintegrated_clusters",
+    unintegrated_umap_name = "umap.unintegrated",
+    unintegrated_k = 20,
+    unintegrated_resolution = 2,
+    unintegrated_algorithm = c("louvain", "walktrap", "leiden")
 ) {
   seurat_info <- NULL
+  tenx_info <- NULL
+  unintegrated_feature_set <- match.arg(unintegrated_feature_set)
+  unintegrated_algorithm <- match.arg(unintegrated_algorithm)
 
   if (methods::is(x, "SingleCellExperiment")) {
-    sce <- x
+    sce <- .scprokar_prepare_sce_input(
+      x,
+      counts_assay = counts_assay,
+      feature_name_col = feature_name_col
+    )
     if (!counts_assay %in% SummarizedExperiment::assayNames(sce)) {
       stop("Assay '", counts_assay, "' was not found in `x`.", call. = FALSE)
     }
@@ -57,6 +118,14 @@ CreateBacObject <- function(
     )
     sce <- seurat_payload$sce
     seurat_info <- seurat_payload$seurat
+  } else if (is.character(x) && length(x) == 1L && dir.exists(x)) {
+    tenx_payload <- .scprokar_from_10x_dir(x)
+    sce <- .scprokar_prepare_sce_input(
+      tenx_payload$sce,
+      counts_assay = "counts",
+      feature_name_col = feature_name_col
+    )
+    tenx_info <- tenx_payload$tenx
   } else {
     .scprokar_stopifnot_counts(x)
     counts <- .scprokar_as_dgC(x)
@@ -67,11 +136,27 @@ CreateBacObject <- function(
 
   cells <- colnames(sce)
   genes <- rownames(sce)
+  if (!is.null(sample_id_value) && is.null(sample_col)) sample_col <- "sample_id"
+  if (!is.null(batch_value) && is.null(batch_col)) batch_col <- "batch"
+  if (!is.null(condition_value) && is.null(condition_col)) condition_col <- "condition"
+  if (!is.null(time_value) && is.null(time_col)) time_col <- "time"
 
   merged_coldata <- .scprokar_align_data_frame(
     if (!is.null(cell_metadata)) cell_metadata else as.data.frame(SummarizedExperiment::colData(sce)),
     ids = cells,
     what = "cell_metadata"
+  )
+  merged_coldata <- .scprokar_apply_fixed_metadata(
+    merged_coldata,
+    ids = cells,
+    sample_col = sample_col,
+    batch_col = batch_col,
+    condition_col = condition_col,
+    time_col = time_col,
+    sample_id_value = sample_id_value,
+    batch_value = batch_value,
+    condition_value = condition_value,
+    time_value = time_value
   )
   merged_rowdata <- .scprokar_align_data_frame(
     if (!is.null(feature_metadata)) feature_metadata else as.data.frame(SummarizedExperiment::rowData(sce)),
@@ -103,8 +188,72 @@ CreateBacObject <- function(
   if (!is.null(seurat_info)) {
     meta$seurat <- seurat_info
   }
+  if (!is.null(tenx_info)) {
+    meta$tenx <- tenx_info
+  }
 
-  .scprokar_set_metadata(sce, meta)
+  sce <- .scprokar_set_metadata(sce, meta)
+
+  if (isTRUE(run_unintegrated)) {
+    sce <- .scprokar_run_unintegrated_workflow(
+      sce,
+      feature_set = unintegrated_feature_set,
+      dims = unintegrated_dims,
+      cluster_col = unintegrated_cluster_col,
+      umap_name = unintegrated_umap_name,
+      k = unintegrated_k,
+      resolution = unintegrated_resolution,
+      algorithm = unintegrated_algorithm
+    )
+    meta <- .scprokar_get_metadata(sce)
+    meta$unintegrated <- list(
+      feature_set = unintegrated_feature_set,
+      dims = unintegrated_dims,
+      cluster_col = unintegrated_cluster_col,
+      umap_name = unintegrated_umap_name,
+      k = unintegrated_k,
+      resolution = unintegrated_resolution,
+      algorithm = unintegrated_algorithm
+    )
+    sce <- .scprokar_set_metadata(sce, meta)
+  }
+
+  sce
+}
+
+#' @keywords internal
+.scprokar_apply_fixed_metadata <- function(
+    coldata,
+    ids,
+    sample_col = NULL,
+    batch_col = NULL,
+    condition_col = NULL,
+    time_col = NULL,
+    sample_id_value = NULL,
+    batch_value = NULL,
+    condition_value = NULL,
+    time_value = NULL
+) {
+  out <- as.data.frame(coldata)
+  if (is.null(rownames(out))) {
+    rownames(out) <- ids
+  }
+
+  assignments <- list(
+    list(column = sample_col, value = sample_id_value),
+    list(column = batch_col, value = batch_value),
+    list(column = condition_col, value = condition_value),
+    list(column = time_col, value = time_value)
+  )
+
+  for (item in assignments) {
+    if (is.null(item$column) || is.null(item$value)) {
+      next
+    }
+    out[[item$column]] <- rep(item$value, length(ids))
+  }
+
+  out
 }
 
 #' Merge multiple SCProkaR or SingleCellExperiment objects
@@ -154,7 +303,7 @@ MergeBacObjects <- function(..., objects = NULL, gene_mode = c("intersect", "uni
     counts <- SummarizedExperiment::assay(sce, "counts")
     .scprokar_expand_counts(counts, genes)
   })
-  merged_counts <- do.call(Matrix::cbind2, counts_list)
+  merged_counts <- Reduce(Matrix::cbind2, counts_list)
   merged_counts <- .scprokar_as_dgC(merged_counts)
 
   coldata_list <- lapply(dots, function(sce) {
@@ -182,7 +331,7 @@ MergeBacObjects <- function(..., objects = NULL, gene_mode = c("intersect", "uni
       logcounts <- SummarizedExperiment::assay(sce, "logcounts")
       .scprokar_expand_counts(logcounts, genes)
     })
-    SummarizedExperiment::assay(merged, "logcounts") <- .scprokar_as_dgC(do.call(Matrix::cbind2, logcounts_list))
+    SummarizedExperiment::assay(merged, "logcounts") <- .scprokar_as_dgC(Reduce(Matrix::cbind2, logcounts_list))
   }
 
   merged_reduction <- .scprokar_merge_reduced_dims2(dots)
@@ -307,6 +456,281 @@ MergeBacObjects <- function(..., objects = NULL, gene_mode = c("intersect", "uni
     )
   }
   data
+}
+
+#' @keywords internal
+.scprokar_from_10x_dir <- function(x) {
+  source_dir <- normalizePath(x, winslash = "/", mustWork = TRUE)
+
+  if (requireNamespace("DropletUtils", quietly = TRUE)) {
+    sce <- tryCatch(
+      DropletUtils::read10xCounts(source_dir),
+      error = function(e) NULL
+    )
+    if (!is.null(sce)) {
+      sce <- .scprokar_ensure_cell_names(sce)
+      counts <- SummarizedExperiment::assay(sce, "counts")
+      SummarizedExperiment::assay(sce, "counts") <- .scprokar_as_dgC(counts)
+      return(list(
+        sce = sce,
+        tenx = list(
+          source_dir = source_dir,
+          reader = "DropletUtils::read10xCounts"
+        )
+      ))
+    }
+  }
+
+  matrix_dir <- .scprokar_locate_10x_matrix_dir(source_dir)
+  counts <- .scprokar_read_10x_matrix(matrix_dir)
+  barcodes <- .scprokar_read_10x_table(matrix_dir, "barcodes")
+  features <- .scprokar_read_10x_table(matrix_dir, "features")
+
+  barcodes <- as.character(barcodes[[1]])
+  feature_ids <- as.character(features[[1]])
+  feature_names <- if (ncol(features) >= 2) {
+    as.character(features[[2]])
+  } else {
+    feature_ids
+  }
+  rownames(counts) <- make.unique(feature_names)
+  colnames(counts) <- barcodes
+
+  feature_df <- data.frame(
+    feature_id = feature_ids,
+    feature_name = feature_names,
+    stringsAsFactors = FALSE,
+    row.names = rownames(counts)
+  )
+  if (ncol(features) >= 3) {
+    feature_df$feature_type <- as.character(features[[3]])
+  }
+
+  sce <- SingleCellExperiment::SingleCellExperiment(
+    assays = list(counts = .scprokar_as_dgC(counts)),
+    rowData = S4Vectors::DataFrame(feature_df),
+    colData = S4Vectors::DataFrame(row.names = barcodes)
+  )
+
+  list(
+    sce = sce,
+    tenx = list(
+      source_dir = source_dir,
+      matrix_dir = matrix_dir,
+      reader = "manual_matrix_market"
+    )
+  )
+}
+
+#' @keywords internal
+.scprokar_ensure_cell_names <- function(sce) {
+  if (!is.null(colnames(sce)) && all(nzchar(colnames(sce)))) {
+    return(sce)
+  }
+
+  cd <- as.data.frame(SummarizedExperiment::colData(sce))
+  barcode_col <- intersect(
+    c("Barcode", "barcode", "cell", "cell_id"),
+    colnames(cd)
+  )
+
+  if (length(barcode_col) >= 1L) {
+    candidate <- as.character(cd[[barcode_col[[1]]]])
+    if (length(candidate) == ncol(sce) && all(nzchar(candidate))) {
+      colnames(sce) <- make.unique(candidate)
+      return(sce)
+    }
+  }
+
+  if (!is.null(rownames(cd)) && length(rownames(cd)) == ncol(sce) && all(nzchar(rownames(cd)))) {
+    colnames(sce) <- make.unique(rownames(cd))
+    return(sce)
+  }
+
+  stop(
+    "Could not determine cell barcodes from the imported 10x object. ",
+    "Expected barcodes in `colnames(sce)` or in a colData column such as `Barcode`.",
+    call. = FALSE
+  )
+}
+
+#' @keywords internal
+.scprokar_ensure_feature_names <- function(sce, counts_assay = "counts") {
+  current_names <- rownames(sce)
+  if (!is.null(current_names) && all(nzchar(current_names))) {
+    return(sce)
+  }
+
+  rd <- as.data.frame(SummarizedExperiment::rowData(sce))
+  candidate_cols <- intersect(
+    c("Symbol", "symbol", "gene_name", "feature_name", "ID", "id", "gene_id"),
+    colnames(rd)
+  )
+
+  for (candidate_col in candidate_cols) {
+    candidate <- as.character(rd[[candidate_col]])
+    if (length(candidate) == nrow(sce) && any(nzchar(candidate))) {
+      rownames(sce) <- make.unique(ifelse(is.na(candidate) | !nzchar(candidate), paste0("feature_", seq_along(candidate)), candidate))
+      assay_names <- SummarizedExperiment::assayNames(sce)
+      for (assay_name in assay_names) {
+        assay_mat <- SummarizedExperiment::assay(sce, assay_name)
+        rownames(assay_mat) <- rownames(sce)
+        SummarizedExperiment::assay(sce, assay_name, withDimnames = FALSE) <- assay_mat
+      }
+      return(sce)
+    }
+  }
+
+  counts <- SummarizedExperiment::assay(sce, counts_assay)
+  if (!is.null(rownames(counts)) && all(nzchar(rownames(counts)))) {
+    rownames(sce) <- make.unique(rownames(counts))
+    return(sce)
+  }
+
+  stop(
+    "Could not determine feature names from the imported object. ",
+    "Expected names in `rownames(sce)` or in rowData columns such as `Symbol` or `ID`.",
+    call. = FALSE
+  )
+}
+
+#' @keywords internal
+.scprokar_promote_feature_names <- function(sce, feature_name_col = NULL) {
+  rd <- as.data.frame(SummarizedExperiment::rowData(sce))
+  candidate_cols <- if (!is.null(feature_name_col)) {
+    feature_name_col
+  } else {
+    intersect(
+      c("Symbol", "symbol", "gene_name", "feature_name", "ID", "id", "gene_id"),
+      colnames(rd)
+    )
+  }
+
+  for (candidate_col in candidate_cols) {
+    if (!candidate_col %in% colnames(rd)) {
+      next
+    }
+    candidate <- as.character(rd[[candidate_col]])
+    if (length(candidate) != nrow(sce) || !any(nzchar(candidate))) {
+      next
+    }
+    replacement <- ifelse(
+      is.na(candidate) | !nzchar(candidate),
+      if (!is.null(rownames(sce)) && length(rownames(sce)) == nrow(sce)) rownames(sce) else paste0("feature_", seq_len(nrow(sce))),
+      candidate
+    )
+    replacement <- make.unique(replacement)
+
+    current_names <- rownames(sce)
+    if (!is.null(current_names) && identical(current_names, replacement)) {
+      return(sce)
+    }
+
+    if (!"feature_id" %in% colnames(rd) && !is.null(current_names)) {
+      rd$feature_id <- current_names
+    }
+    rownames(rd) <- replacement
+    SummarizedExperiment::rowData(sce) <- S4Vectors::DataFrame(rd)
+    rownames(sce) <- replacement
+
+    assay_names <- SummarizedExperiment::assayNames(sce)
+    for (assay_name in assay_names) {
+      assay_mat <- SummarizedExperiment::assay(sce, assay_name)
+      rownames(assay_mat) <- replacement
+      SummarizedExperiment::assay(sce, assay_name, withDimnames = FALSE) <- assay_mat
+    }
+    return(sce)
+  }
+
+  sce
+}
+
+#' @keywords internal
+.scprokar_prepare_sce_input <- function(sce, counts_assay = "counts", feature_name_col = NULL) {
+  if (!counts_assay %in% SummarizedExperiment::assayNames(sce)) {
+    stop("Assay '", counts_assay, "' was not found in `x`.", call. = FALSE)
+  }
+
+  sce <- .scprokar_ensure_cell_names(sce)
+  sce <- .scprokar_promote_feature_names(sce, feature_name_col = feature_name_col)
+  sce <- .scprokar_ensure_feature_names(sce, counts_assay = counts_assay)
+
+  assay_names <- SummarizedExperiment::assayNames(sce)
+  for (assay_name in assay_names) {
+    assay_mat <- SummarizedExperiment::assay(sce, assay_name)
+    if (is.null(colnames(assay_mat)) || !identical(colnames(assay_mat), colnames(sce))) {
+      colnames(assay_mat) <- colnames(sce)
+    }
+    if (is.null(rownames(assay_mat)) || !identical(rownames(assay_mat), rownames(sce))) {
+      rownames(assay_mat) <- rownames(sce)
+    }
+    SummarizedExperiment::assay(sce, assay_name, withDimnames = FALSE) <- assay_mat
+  }
+
+  sce
+}
+
+#' @keywords internal
+.scprokar_locate_10x_matrix_dir <- function(source_dir) {
+  candidates <- c(
+    source_dir,
+    file.path(source_dir, "filtered_feature_bc_matrix"),
+    file.path(source_dir, "raw_feature_bc_matrix"),
+    file.path(source_dir, "outs", "filtered_feature_bc_matrix"),
+    file.path(source_dir, "outs", "raw_feature_bc_matrix")
+  )
+  candidates <- unique(candidates[dir.exists(candidates)])
+
+  for (candidate in candidates) {
+    has_matrix <- any(file.exists(file.path(candidate, c("matrix.mtx", "matrix.mtx.gz"))))
+    has_barcodes <- any(file.exists(file.path(candidate, c("barcodes.tsv", "barcodes.tsv.gz"))))
+    has_features <- any(file.exists(file.path(candidate, c("features.tsv", "features.tsv.gz", "genes.tsv", "genes.tsv.gz"))))
+    if (has_matrix && has_barcodes && has_features) {
+      return(candidate)
+    }
+  }
+
+  stop(
+    "Could not locate a 10x matrix directory under '", source_dir,
+    "'. Expected files like matrix.mtx(.gz), barcodes.tsv(.gz), and features.tsv(.gz).",
+    call. = FALSE
+  )
+}
+
+#' @keywords internal
+.scprokar_read_10x_matrix <- function(matrix_dir) {
+  matrix_file <- .scprokar_first_existing_file(matrix_dir, c("matrix.mtx", "matrix.mtx.gz"))
+  con <- if (grepl("\\.gz$", matrix_file)) gzfile(matrix_file, open = "rt") else file(matrix_file, open = "rt")
+  on.exit(close(con), add = TRUE)
+  Matrix::readMM(con)
+}
+
+#' @keywords internal
+.scprokar_read_10x_table <- function(matrix_dir, kind = c("barcodes", "features")) {
+  kind <- match.arg(kind)
+  choices <- switch(
+    kind,
+    barcodes = c("barcodes.tsv", "barcodes.tsv.gz"),
+    features = c("features.tsv", "features.tsv.gz", "genes.tsv", "genes.tsv.gz")
+  )
+  table_file <- .scprokar_first_existing_file(matrix_dir, choices)
+  con <- if (grepl("\\.gz$", table_file)) gzfile(table_file, open = "rt") else file(table_file, open = "rt")
+  on.exit(close(con), add = TRUE)
+  utils::read.delim(con, header = FALSE, stringsAsFactors = FALSE)
+}
+
+#' @keywords internal
+.scprokar_first_existing_file <- function(path, candidates) {
+  full_paths <- file.path(path, candidates)
+  hits <- full_paths[file.exists(full_paths)]
+  if (!length(hits)) {
+    stop(
+      "None of the expected files were found in '", path, "': ",
+      paste(candidates, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  hits[[1]]
 }
 
 #' @keywords internal

@@ -29,6 +29,7 @@ Suggests:
     batchelor,
     BiocNeighbors,
     FNN,
+    DropletUtils,
     harmony,
     irlba,
     knitr,

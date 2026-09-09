@@ -9,25 +9,44 @@ CreateBacObject(
   counts_assay = "counts",
   cell_metadata = NULL,
   feature_metadata = NULL,
+  feature_name_col = NULL,
   sample_col = NULL,
   batch_col = NULL,
   condition_col = NULL,
   time_col = NULL,
+  sample_id_value = NULL,
+  batch_value = NULL,
+  condition_value = NULL,
+  time_value = NULL,
   organism = "bacteria",
   seurat_assay = NULL,
   seurat_layer = "counts",
-  transfer_reductions = TRUE
+  transfer_reductions = TRUE,
+  run_unintegrated = FALSE,
+  unintegrated_feature_set = c("hvg", "all"),
+  unintegrated_dims = 1:30,
+  unintegrated_cluster_col = "unintegrated_clusters",
+  unintegrated_umap_name = "umap.unintegrated",
+  unintegrated_k = 20,
+  unintegrated_resolution = 2,
+  unintegrated_algorithm = c("louvain", "walktrap", "leiden")
 )
 }
 \arguments{
 \item{x}{A gene-by-cell count matrix, a \code{SingleCellExperiment}, or a loaded
-Seurat object from an \code{.rds} file.}
+Seurat object from an \code{.rds} file, or a Cell Ranger output directory.}
 
 \item{counts_assay}{Assay name to use when \code{x} is a \code{SingleCellExperiment}.}
 
 \item{cell_metadata}{Optional cell-level metadata with one row per cell.}
 
 \item{feature_metadata}{Optional feature-level metadata with one row per gene.}
+
+\item{feature_name_col}{Optional \code{rowData} column to use as the primary
+feature name when \code{x} is a \code{SingleCellExperiment} or 10x-derived object.
+If \code{NULL}, SCProkaR will prefer common columns such as \code{Symbol},
+\code{gene_name}, or \code{feature_name} when available. For 10x-derived input,
+\code{Symbol} is preferred by default when present.}
 
 \item{sample_col}{Optional sample identifier column in \code{cell_metadata}.}
 
@@ -36,6 +55,22 @@ Seurat object from an \code{.rds} file.}
 \item{condition_col}{Optional condition column in \code{cell_metadata}.}
 
 \item{time_col}{Optional time or ordering column in \code{cell_metadata}.}
+
+\item{sample_id_value}{Optional fixed sample identifier to assign to all
+cells during object creation. If \code{sample_col} is \code{NULL}, a \code{sample_id}
+column is created automatically.}
+
+\item{batch_value}{Optional fixed batch identifier to assign to all cells
+during object creation. If \code{batch_col} is \code{NULL}, a \code{batch} column is
+created automatically.}
+
+\item{condition_value}{Optional fixed condition value to assign to all cells
+during object creation. If \code{condition_col} is \code{NULL}, a \code{condition} column
+is created automatically.}
+
+\item{time_value}{Optional fixed time value to assign to all cells during
+object creation. If \code{time_col} is \code{NULL}, a \code{time} column is created
+automatically.}
 
 \item{organism}{Organism label stored in package metadata.}
 
@@ -48,6 +83,37 @@ Defaults to \code{"counts"}.}
 \item{transfer_reductions}{Logical indicating whether existing Seurat
 dimensional reductions (for example \code{pca} and \code{umap}) should be copied into
 \code{reducedDims(sce)}.}
+
+\item{run_unintegrated}{Logical indicating whether to run a standard
+unintegrated preprocessing workflow after object creation. This computes
+normalized counts, identifies highly variable features, runs PCA, clusters
+cells, and computes an unintegrated UMAP without requiring Seurat.}
+
+\item{unintegrated_feature_set}{Feature selection strategy passed to the
+unintegrated PCA step. Defaults to \code{"hvg"}.}
+
+\item{unintegrated_dims}{Integer vector of dimensions to retain for PCA,
+neighbor graph construction, clustering, and UMAP.}
+
+\item{unintegrated_cluster_col}{Column name used to store unintegrated
+cluster labels in \code{colData(sce)}.}
+
+\item{unintegrated_umap_name}{Reduced-dimension name used to store the
+unintegrated UMAP embedding.}
+
+\item{unintegrated_k}{Number of nearest neighbours used for unintegrated
+graph construction and clustering.}
+
+\item{unintegrated_resolution}{Cluster granularity used for unintegrated
+clustering. Higher values typically produce more clusters.}
+
+\item{unintegrated_algorithm}{Graph clustering backend for the unintegrated
+workflow.
+
+For Cell Ranger / 10x input, users can pass the directory path directly.
+SCProkaR will import the matrix, standardize cell metadata, and by default
+use \code{rowData(sce)$Symbol} as the feature name column when that column is
+available. Set \code{feature_name_col} explicitly to override this behavior.}
 }
 \value{
 A standardized \code{SingleCellExperiment}.

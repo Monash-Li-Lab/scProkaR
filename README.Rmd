@@ -47,6 +47,8 @@ remotes::install_github("Monash-Li-Lab/scProka")
 
 - Core workflow vignette:
   <https://monash-li-lab.github.io/scProka/articles/scprokar-workflow.html>
+- Comprehensive PDF tutorial source:
+  `vignettes/scprokar-pdf-tutorial.Rmd`
 - TATA vignette:
   <https://monash-li-lab.github.io/scProka/articles/tata-workflow.html>
 - Function reference:
@@ -114,6 +116,23 @@ sce <- CreateBacObject(
   seurat_assay = "RNA",
   seurat_layer = "counts",
   sample_col = "orig.ident"
+)
+```
+
+If your input is a 10x Genomics Cell Ranger output directory, you can also pass
+the directory path directly to `CreateBacObject()`. With
+`run_unintegrated = TRUE`, SCProkaR will run a standard unintegrated workflow
+analogous to normalization, HVG selection, PCA, neighbour graph construction,
+clustering, and UMAP in Seurat, but without any Seurat dependency:
+
+```{r tenx-example, eval = FALSE}
+sce <- CreateBacObject(
+  "sample1/outs",
+  run_unintegrated = TRUE,
+  unintegrated_dims = 1:30,
+  unintegrated_cluster_col = "unintegrated_clusters",
+  unintegrated_umap_name = "umap.unintegrated",
+  unintegrated_resolution = 2
 )
 ```
 
