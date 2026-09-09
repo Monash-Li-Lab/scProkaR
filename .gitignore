@@ -42,6 +42,7 @@ benchmarks/real_data/
 benchmarks/real_results/
 
 # Local project scratch
+output/
 backups/
 legacy/
 sample1.rds
