@@ -408,41 +408,13 @@ PlotReduction <- function(
         )
     }
 
-    meta <- as.data.frame(SummarizedExperiment::colData(sce))
-    plot_df <- data.frame(
-        dim1 = emb[, 1],
-        dim2 = emb[, 2],
-        meta,
-        stringsAsFactors = FALSE
+    plot_df <- .scprokar_reduction_plot_data(
+        sce,
+        emb = emb,
+        colour_by = colour_by,
+        facet_by = facet_by,
+        shuffle = shuffle
     )
-
-    if (!is.null(colour_by)) {
-        if (!colour_by %in% colnames(plot_df)) {
-            stop(
-                "`colour_by` was not found in colData(sce): ",
-                colour_by,
-                call. = FALSE
-            )
-        }
-        plot_df$.colour <- plot_df[[colour_by]]
-    } else {
-        plot_df$.colour <- "cells"
-    }
-
-    if (!is.null(facet_by)) {
-        if (!facet_by %in% colnames(plot_df)) {
-            stop(
-                "`facet_by` was not found in colData(sce): ",
-                facet_by,
-                call. = FALSE
-            )
-        }
-        plot_df$.facet <- plot_df[[facet_by]]
-    }
-
-    if (isTRUE(shuffle)) {
-        plot_df <- plot_df[sample(seq_len(nrow(plot_df))), , drop = FALSE]
-    }
 
     plot <- ggplot2::ggplot(plot_df, ggplot2::aes(x = dim1, y = dim2)) +
         ggplot2::geom_point(
@@ -458,34 +430,11 @@ PlotReduction <- function(
         ) +
         ggplot2::theme_classic()
 
-    if (is.null(colour_by)) {
-        plot <- plot + ggplot2::scale_color_manual(
-            values = c(cells = "grey50"),
-            guide = "none"
-        )
-    } else if (is.numeric(plot_df$.colour)) {
-        plot <- plot + ggplot2::scale_color_gradientn(
-            colours = if (is.null(palette)) c(
-                "#2b8cbe", "#fdbb84", "#d7301f"
-            ) else palette
-        )
-    } else {
-        discrete_values <- unique(as.character(plot_df$.colour))
-        colors <- if (is.null(palette)) {
-            stats::setNames(
-                grDevices::hcl.colors(length(discrete_values), "Dark 3"),
-                discrete_values
-            )
-        } else {
-            if (is.null(names(palette))) {
-                names(palette) <- discrete_values[seq_len(min(
-                    length(discrete_values), length(palette)
-                ))]
-            }
-            palette[discrete_values]
-        }
-        plot <- plot + ggplot2::scale_color_manual(values = colors)
-    }
+    plot <- plot + .scprokar_reduction_colour_scale(
+        colour_values = plot_df$.colour,
+        colour_by = colour_by,
+        palette = palette
+    )
 
     if (!is.null(facet_by)) {
         plot <- plot + ggplot2::facet_wrap(~.facet)
@@ -872,4 +821,102 @@ RegisterIntegrationEmbedding <- function(
         vertices = seq_len(n)
     )
     list(graph = graph, edges = edge_df)
+}
+
+#' Assemble the point data frame used by PlotReduction()
+#'
+#' Combines the first two embedding dimensions with `colData(sce)`, adds the
+#' internal `.colour` and `.facet` columns, and optionally shuffles the
+#' plotting order.
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_reduction_plot_data <- function(
+    sce,
+    emb,
+    colour_by,
+    facet_by,
+    shuffle
+) {
+    meta <- as.data.frame(SummarizedExperiment::colData(sce))
+    plot_df <- data.frame(
+        dim1 = emb[, 1],
+        dim2 = emb[, 2],
+        meta,
+        stringsAsFactors = FALSE
+    )
+
+    if (!is.null(colour_by)) {
+        if (!colour_by %in% colnames(plot_df)) {
+            stop(
+                "`colour_by` was not found in colData(sce): ",
+                colour_by,
+                call. = FALSE
+            )
+        }
+        plot_df$.colour <- plot_df[[colour_by]]
+    } else {
+        plot_df$.colour <- "cells"
+    }
+
+    if (!is.null(facet_by)) {
+        if (!facet_by %in% colnames(plot_df)) {
+            stop(
+                "`facet_by` was not found in colData(sce): ",
+                facet_by,
+                call. = FALSE
+            )
+        }
+        plot_df$.facet <- plot_df[[facet_by]]
+    }
+
+    if (isTRUE(shuffle)) {
+        plot_df <- plot_df[sample(seq_len(nrow(plot_df))), , drop = FALSE]
+    }
+
+    plot_df
+}
+
+#' Build the ggplot2 colour scale for PlotReduction()
+#'
+#' Chooses a fixed grey scale, a continuous gradient, or a discrete manual
+#' scale depending on the type of the colouring variable.
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_reduction_colour_scale <- function(
+    colour_values,
+    colour_by,
+    palette
+) {
+    if (is.null(colour_by)) {
+        return(ggplot2::scale_color_manual(
+            values = c(cells = "grey50"),
+            guide = "none"
+        ))
+    }
+
+    if (is.numeric(colour_values)) {
+        return(ggplot2::scale_color_gradientn(
+            colours = if (is.null(palette)) c(
+                "#2b8cbe", "#fdbb84", "#d7301f"
+            ) else palette
+        ))
+    }
+
+    discrete_values <- unique(as.character(colour_values))
+    colors <- if (is.null(palette)) {
+        stats::setNames(
+            grDevices::hcl.colors(length(discrete_values), "Dark 3"),
+            discrete_values
+        )
+    } else {
+        if (is.null(names(palette))) {
+            names(palette) <- discrete_values[seq_len(min(
+                length(discrete_values), length(palette)
+            ))]
+        }
+        palette[discrete_values]
+    }
+    ggplot2::scale_color_manual(values = colors)
 }

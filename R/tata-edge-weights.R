@@ -127,42 +127,13 @@ compute_time_weights <- function(
 
     pair_grid <- utils::combn(cluster_levels, 2)
     pair_key <- paste(pair_grid[1, ], pair_grid[2, ], sep = "||")
-    flow_store <- stats::setNames(vector("list", length(pair_key)), pair_key)
-
-    upper_adjacency <- Matrix::triu(adjacency, k = 1)
-    edge_summary <- Matrix::summary(upper_adjacency)
-
-    if (nrow(edge_summary) > 0L) {
-        same_cluster <- cluster_id[edge_summary$i] == cluster_id[edge_summary$j]
-        edge_summary <- edge_summary[!same_cluster, , drop = FALSE]
-    }
-
-    if (nrow(edge_summary) > 0L) {
-        for (row_idx in seq_len(nrow(edge_summary))) {
-            i <- edge_summary$i[row_idx]
-            j <- edge_summary$j[row_idx]
-            cluster_i <- cluster_id[i]
-            cluster_j <- cluster_id[j]
-
-            ordered_pair <- sort(c(cluster_i, cluster_j))
-            cluster_a <- cluster_levels[ordered_pair[1]]
-            cluster_b <- cluster_levels[ordered_pair[2]]
-            pair_name <- paste(cluster_a, cluster_b, sep = "||")
-
-            if (cluster_i == ordered_pair[1]) {
-                time_a <- time_numeric[i]
-                time_b <- time_numeric[j]
-            } else {
-                time_a <- time_numeric[j]
-                time_b <- time_numeric[i]
-            }
-
-            flow_store[[pair_name]] <- c(
-                flow_store[[pair_name]],
-                time_b - time_a
-            )
-        }
-    }
+    flow_store <- .tata_pair_time_deltas(
+        adjacency = adjacency,
+        cluster_id = cluster_id,
+        cluster_levels = cluster_levels,
+        time_numeric = time_numeric,
+        pair_key = pair_key
+    )
 
     edge_rows <- vector("list", ncol(pair_grid))
     for (idx in seq_len(ncol(pair_grid))) {
@@ -179,49 +150,25 @@ compute_time_weights <- function(
             cluster_time_list[[cluster_b]]
         )
 
-        if (length(pair_delta) == 0L) {
-            flow_score <- 0
-            time_weight <- 0.5
-            time_consistency <- 0
-            signed_time_score <- 0
-            edge_median_delta <- cluster_gap
-            jump_penalty <- 1
-            n_time_edges <- 0L
-        } else {
-            flow_score <- mean(sign(pair_delta))
-            edge_median_delta <- stats::median(pair_delta)
-            lag_strength <- tanh(abs(cluster_gap) / pmax(typical_step, 1e-8))
-            overlap_separation <- 1 - time_overlap
-            jump_ratio <- abs(cluster_gap) / pmax(typical_step, 1e-8)
-            jump_penalty <- 1 / (1 + pmax(jump_ratio - 2, 0) / 2)
-            direction_source <- if (abs(flow_score) > 1e-8)
-                flow_score else sign(cluster_gap)
-            direction_strength <- max(
-                abs(flow_score),
-                min(1, abs(cluster_gap) / pmax(2 * typical_step, 1e-8))
-            )
-            time_consistency <- pmin(
-                1,
-                (0.60 * direction_strength + 0.25 * lag_strength +
-                    0.15 * overlap_separation) * jump_penalty
-            )
-            signed_time_score <- sign(direction_source) * time_consistency
-            time_weight <- (signed_time_score + 1) / 2
-            n_time_edges <- length(pair_delta)
-        }
+        pair_stats <- .tata_pair_time_stats(
+            pair_delta = pair_delta,
+            cluster_gap = cluster_gap,
+            time_overlap = time_overlap,
+            typical_step = typical_step
+        )
 
         edge_rows[[idx]] <- data.frame(
             cluster_a = cluster_a,
             cluster_b = cluster_b,
-            n_time_edges = n_time_edges,
-            flow_score = flow_score,
-            signed_time_score = signed_time_score,
+            n_time_edges = pair_stats$n_time_edges,
+            flow_score = pair_stats$flow_score,
+            signed_time_score = pair_stats$signed_time_score,
             median_time_gap = cluster_gap,
-            edge_median_delta = edge_median_delta,
+            edge_median_delta = pair_stats$edge_median_delta,
             time_overlap = time_overlap,
-            jump_penalty = jump_penalty,
-            time_weight = time_weight,
-            time_consistency = time_consistency,
+            jump_penalty = pair_stats$jump_penalty,
+            time_weight = pair_stats$time_weight,
+            time_consistency = pair_stats$time_consistency,
             stringsAsFactors = FALSE
         )
     }
@@ -336,6 +283,174 @@ build_tata_graph <- function(
         stop("`time_table` is missing required cluster columns.", call. = FALSE)
     }
 
+    edge_table <- .tata_merge_edge_tables(topology_table, time_table)
+
+    edge_table$time_factor <- if (time_weight_mode == "ordered") {
+        pmax(edge_table$time_weight, 0)
+    } else {
+        pmax(edge_table$time_consistency, 0)
+    }
+
+    edge_table$tata_weight <- (pmax(edge_table$topology_weight, 0)^alpha) *
+        (edge_table$time_factor^beta)
+
+    edge_table <- .tata_assign_edge_direction(
+        edge_table,
+        direction_threshold
+    )
+
+    vertex_df <- .tata_vertex_table(clusters, embedding, timepoint)
+
+    edge_table$kept <- edge_table$observed_edges > 0 &
+        edge_table$tata_weight >= prune_threshold
+
+    kept_edges <- edge_table[edge_table$kept, , drop = FALSE]
+    graph_edge_df <- .tata_expand_graph_edges(kept_edges)
+
+    graph_vertex_df <- data.frame(
+        name = vertex_df$cluster,
+        size = vertex_df$size,
+        median_time = vertex_df$median_time,
+        x = vertex_df$x,
+        y = vertex_df$y,
+        stringsAsFactors = FALSE
+    )
+
+    cluster_graph <- igraph::graph_from_data_frame(
+        d = graph_edge_df,
+        directed = TRUE,
+        vertices = graph_vertex_df
+    )
+
+    list(
+        graph = cluster_graph,
+        edge_table = edge_table,
+        vertex_table = vertex_df
+    )
+}
+
+
+#' Collect per-cluster-pair time deltas across inter-cluster graph edges
+#'
+#' Walks the upper triangle of the adjacency matrix, keeps only edges that
+#' connect two different clusters, and records `t_b - t_a` for each edge after
+#' orienting the pair as `(cluster_a, cluster_b)`.
+#'
+#' @keywords internal
+#' @noRd
+.tata_pair_time_deltas <- function(
+    adjacency,
+    cluster_id,
+    cluster_levels,
+    time_numeric,
+    pair_key
+) {
+    flow_store <- stats::setNames(vector("list", length(pair_key)), pair_key)
+
+    upper_adjacency <- Matrix::triu(adjacency, k = 1)
+    edge_summary <- Matrix::summary(upper_adjacency)
+
+    if (nrow(edge_summary) > 0L) {
+        same_cluster <- cluster_id[edge_summary$i] ==
+            cluster_id[edge_summary$j]
+        edge_summary <- edge_summary[!same_cluster, , drop = FALSE]
+    }
+
+    if (nrow(edge_summary) == 0L) {
+        return(flow_store)
+    }
+
+    for (row_idx in seq_len(nrow(edge_summary))) {
+        i <- edge_summary$i[row_idx]
+        j <- edge_summary$j[row_idx]
+        cluster_i <- cluster_id[i]
+        cluster_j <- cluster_id[j]
+
+        ordered_pair <- sort(c(cluster_i, cluster_j))
+        cluster_a <- cluster_levels[ordered_pair[1]]
+        cluster_b <- cluster_levels[ordered_pair[2]]
+        pair_name <- paste(cluster_a, cluster_b, sep = "||")
+
+        if (cluster_i == ordered_pair[1]) {
+            time_a <- time_numeric[i]
+            time_b <- time_numeric[j]
+        } else {
+            time_a <- time_numeric[j]
+            time_b <- time_numeric[i]
+        }
+
+        flow_store[[pair_name]] <- c(
+            flow_store[[pair_name]],
+            time_b - time_a
+        )
+    }
+
+    flow_store
+}
+
+
+#' Summarise the temporal statistics of a single cluster pair
+#'
+#' Turns the raw per-edge time deltas of one cluster pair into the flow score,
+#' directional consistency, jump penalty and derived time weight. Pairs with no
+#' inter-cluster edges fall back to a neutral summary.
+#'
+#' @keywords internal
+#' @noRd
+.tata_pair_time_stats <- function(
+    pair_delta,
+    cluster_gap,
+    time_overlap,
+    typical_step
+) {
+    if (length(pair_delta) == 0L) {
+        return(list(
+            flow_score = 0,
+            time_weight = 0.5,
+            time_consistency = 0,
+            signed_time_score = 0,
+            edge_median_delta = cluster_gap,
+            jump_penalty = 1,
+            n_time_edges = 0L
+        ))
+    }
+
+    flow_score <- mean(sign(pair_delta))
+    edge_median_delta <- stats::median(pair_delta)
+    lag_strength <- tanh(abs(cluster_gap) / pmax(typical_step, 1e-8))
+    overlap_separation <- 1 - time_overlap
+    jump_ratio <- abs(cluster_gap) / pmax(typical_step, 1e-8)
+    jump_penalty <- 1 / (1 + pmax(jump_ratio - 2, 0) / 2)
+    direction_source <- if (abs(flow_score) > 1e-8)
+        flow_score else sign(cluster_gap)
+    direction_strength <- max(
+        abs(flow_score),
+        min(1, abs(cluster_gap) / pmax(2 * typical_step, 1e-8))
+    )
+    time_consistency <- pmin(
+        1,
+        (0.60 * direction_strength + 0.25 * lag_strength +
+            0.15 * overlap_separation) * jump_penalty
+    )
+    signed_time_score <- sign(direction_source) * time_consistency
+
+    list(
+        flow_score = flow_score,
+        time_weight = (signed_time_score + 1) / 2,
+        time_consistency = time_consistency,
+        signed_time_score = signed_time_score,
+        edge_median_delta = edge_median_delta,
+        jump_penalty = jump_penalty,
+        n_time_edges = length(pair_delta)
+    )
+}
+
+
+#' Join the topology and time tables and fill missing temporal columns
+#'
+#' @keywords internal
+#' @noRd
+.tata_merge_edge_tables <- function(topology_table, time_table) {
     edge_table <- merge(
         topology_table,
         time_table,
@@ -356,15 +471,15 @@ build_tata_graph <- function(
     edge_table$time_consistency[is.na(edge_table$time_consistency)] <- 0
     edge_table$n_time_edges[is.na(edge_table$n_time_edges)] <- 0
 
-    edge_table$time_factor <- if (time_weight_mode == "ordered") {
-        pmax(edge_table$time_weight, 0)
-    } else {
-        pmax(edge_table$time_consistency, 0)
-    }
+    edge_table
+}
 
-    edge_table$tata_weight <- (pmax(edge_table$topology_weight, 0)^alpha) *
-        (edge_table$time_factor^beta)
 
+#' Assign edge direction, endpoints and a printable direction label
+#'
+#' @keywords internal
+#' @noRd
+.tata_assign_edge_direction <- function(edge_table, direction_threshold) {
     edge_table$direction <- ifelse(
         edge_table$signed_time_score > direction_threshold,
         "a_to_b",
@@ -395,15 +510,21 @@ build_tata_graph <- function(
         )
     )
 
+    edge_table
+}
+
+
+#' Build the cluster vertex table with sizes, median times and centroids
+#'
+#' @keywords internal
+#' @noRd
+.tata_vertex_table <- function(clusters, embedding, timepoint) {
     clusters <- factor(clusters)
     cluster_levels <- levels(clusters)
     time_numeric <- .coerce_time_to_numeric(timepoint)
     cluster_size <- table(clusters)
     cluster_median_time <- tapply(time_numeric, clusters, stats::median)
     centroid_df <- .compute_cluster_centroids(embedding, clusters)
-
-    edge_table$kept <- edge_table$observed_edges > 0 &
-        edge_table$tata_weight >= prune_threshold
 
     vertex_df <- data.frame(
         cluster = cluster_levels,
@@ -419,15 +540,24 @@ build_tata_graph <- function(
         all.x = TRUE,
         sort = FALSE
     )
-    vertex_df <- vertex_df[
+
+    vertex_df[
         match(cluster_levels, vertex_df$cluster), ,
         drop = FALSE
     ]
+}
 
-    kept_edges <- edge_table[edge_table$kept, , drop = FALSE]
 
+#' Expand retained cluster pairs into directed igraph edge rows
+#'
+#' Directed pairs contribute one row; ambiguous pairs contribute a reciprocal
+#' pair of rows so the undirected relationship survives in a directed graph.
+#'
+#' @keywords internal
+#' @noRd
+.tata_expand_graph_edges <- function(kept_edges) {
     if (nrow(kept_edges) == 0L) {
-        graph_edge_df <- data.frame(
+        return(data.frame(
             from = character(0),
             to = character(0),
             weight = numeric(0),
@@ -437,69 +567,48 @@ build_tata_graph <- function(
             direction = character(0),
             ambiguous = logical(0),
             stringsAsFactors = FALSE
-        )
-    } else {
-        expanded_edges <- vector("list", nrow(kept_edges))
-
-        for (idx in seq_len(nrow(kept_edges))) {
-            edge_row <- kept_edges[idx, , drop = FALSE]
-
-            if (edge_row$direction == "ambiguous") {
-                expanded_edges[[idx]] <- data.frame(
-                    from = c(edge_row$cluster_a, edge_row$cluster_b),
-                    to = c(edge_row$cluster_b, edge_row$cluster_a),
-                    weight = rep(edge_row$tata_weight, 2),
-                    topology_weight = rep(edge_row$topology_weight, 2),
-                    time_weight = rep(edge_row$time_weight, 2),
-                    time_consistency = rep(edge_row$time_consistency, 2),
-                    flow_score = rep(edge_row$flow_score, 2),
-                    signed_time_score = rep(edge_row$signed_time_score, 2),
-                    median_time_gap = rep(edge_row$median_time_gap, 2),
-                    time_overlap = rep(edge_row$time_overlap, 2),
-                    direction = rep("ambiguous", 2),
-                    ambiguous = rep(TRUE, 2),
-                    stringsAsFactors = FALSE
-                )
-            } else {
-                expanded_edges[[idx]] <- data.frame(
-                    from = edge_row$from,
-                    to = edge_row$to,
-                    weight = edge_row$tata_weight,
-                    topology_weight = edge_row$topology_weight,
-                    time_weight = edge_row$time_weight,
-                    time_consistency = edge_row$time_consistency,
-                    flow_score = edge_row$flow_score,
-                    signed_time_score = edge_row$signed_time_score,
-                    median_time_gap = edge_row$median_time_gap,
-                    time_overlap = edge_row$time_overlap,
-                    direction = "directed",
-                    ambiguous = FALSE,
-                    stringsAsFactors = FALSE
-                )
-            }
-        }
-
-        graph_edge_df <- do.call(rbind, expanded_edges)
+        ))
     }
 
-    graph_vertex_df <- data.frame(
-        name = vertex_df$cluster,
-        size = vertex_df$size,
-        median_time = vertex_df$median_time,
-        x = vertex_df$x,
-        y = vertex_df$y,
-        stringsAsFactors = FALSE
-    )
+    expanded_edges <- vector("list", nrow(kept_edges))
 
-    cluster_graph <- igraph::graph_from_data_frame(
-        d = graph_edge_df,
-        directed = TRUE,
-        vertices = graph_vertex_df
-    )
+    for (idx in seq_len(nrow(kept_edges))) {
+        edge_row <- kept_edges[idx, , drop = FALSE]
 
-    list(
-        graph = cluster_graph,
-        edge_table = edge_table,
-        vertex_table = vertex_df
-    )
+        if (edge_row$direction == "ambiguous") {
+            expanded_edges[[idx]] <- data.frame(
+                from = c(edge_row$cluster_a, edge_row$cluster_b),
+                to = c(edge_row$cluster_b, edge_row$cluster_a),
+                weight = rep(edge_row$tata_weight, 2),
+                topology_weight = rep(edge_row$topology_weight, 2),
+                time_weight = rep(edge_row$time_weight, 2),
+                time_consistency = rep(edge_row$time_consistency, 2),
+                flow_score = rep(edge_row$flow_score, 2),
+                signed_time_score = rep(edge_row$signed_time_score, 2),
+                median_time_gap = rep(edge_row$median_time_gap, 2),
+                time_overlap = rep(edge_row$time_overlap, 2),
+                direction = rep("ambiguous", 2),
+                ambiguous = rep(TRUE, 2),
+                stringsAsFactors = FALSE
+            )
+        } else {
+            expanded_edges[[idx]] <- data.frame(
+                from = edge_row$from,
+                to = edge_row$to,
+                weight = edge_row$tata_weight,
+                topology_weight = edge_row$topology_weight,
+                time_weight = edge_row$time_weight,
+                time_consistency = edge_row$time_consistency,
+                flow_score = edge_row$flow_score,
+                signed_time_score = edge_row$signed_time_score,
+                median_time_gap = edge_row$median_time_gap,
+                time_overlap = edge_row$time_overlap,
+                direction = "directed",
+                ambiguous = FALSE,
+                stringsAsFactors = FALSE
+            )
+        }
+    }
+
+    do.call(rbind, expanded_edges)
 }

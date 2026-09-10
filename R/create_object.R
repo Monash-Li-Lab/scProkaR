@@ -123,53 +123,21 @@ CreateBacObject <- function(
     unintegrated_resolution = 2,
     unintegrated_algorithm = c("louvain", "walktrap", "leiden")
 ) {
-    seurat_info <- NULL
-    tenx_info <- NULL
     unintegrated_feature_set <- match.arg(unintegrated_feature_set)
     unintegrated_algorithm <- match.arg(unintegrated_algorithm)
 
-    if (methods::is(x, "SingleCellExperiment")) {
-        sce <- .scprokar_prepare_sce_input(
-            x,
-            counts_assay = counts_assay,
-            feature_name_col = feature_name_col
-        )
-        if (!counts_assay %in% SummarizedExperiment::assayNames(sce)) {
-            stop(
-                "Assay '", counts_assay, "' was not found in `x`.",
-                call. = FALSE
-            )
-        }
-        counts <- SummarizedExperiment::assay(sce, counts_assay)
-        .scprokar_stopifnot_counts(counts)
-        SummarizedExperiment::assay(sce, "counts") <- .scprokar_as_dgC(counts)
-    } else if (methods::is(x, "Seurat")) {
-        seurat_payload <- .scprokar_from_seurat(
-            x,
-            seurat_assay = seurat_assay,
-            seurat_layer = seurat_layer,
-            transfer_reductions = transfer_reductions
-        )
-        sce <- seurat_payload$sce
-        seurat_info <- seurat_payload$seurat
-    } else if (is.character(x) && length(x) == 1L && dir.exists(x)) {
-        tenx_payload <- .scprokar_from_10x_dir(x)
-        sce <- .scprokar_prepare_sce_input(
-            tenx_payload$sce,
-            counts_assay = "counts",
-            feature_name_col = feature_name_col
-        )
-        tenx_info <- tenx_payload$tenx
-    } else {
-        .scprokar_stopifnot_counts(x)
-        counts <- .scprokar_as_dgC(x)
-        sce <- SingleCellExperiment::SingleCellExperiment(
-            assays = list(counts = counts)
-        )
-    }
+    ingested <- .scprokar_ingest_object_input(
+        x,
+        counts_assay = counts_assay,
+        feature_name_col = feature_name_col,
+        seurat_assay = seurat_assay,
+        seurat_layer = seurat_layer,
+        transfer_reductions = transfer_reductions
+    )
+    sce <- ingested$sce
+    seurat_info <- ingested$seurat
+    tenx_info <- ingested$tenx
 
-    cells <- colnames(sce)
-    genes <- rownames(sce)
     if (!is.null(sample_id_value) && is.null(sample_col))
         sample_col <- "sample_id"
     if (!is.null(batch_value) && is.null(batch_col)) batch_col <- "batch"
@@ -177,15 +145,10 @@ CreateBacObject <- function(
         condition_col <- "condition"
     if (!is.null(time_value) && is.null(time_col)) time_col <- "time"
 
-    merged_coldata <- .scprokar_align_data_frame(
-        if (!is.null(cell_metadata)) cell_metadata else
-            as.data.frame(SummarizedExperiment::colData(sce)),
-        ids = cells,
-        what = "cell_metadata"
-    )
-    merged_coldata <- .scprokar_apply_fixed_metadata(
-        merged_coldata,
-        ids = cells,
+    sce <- .scprokar_attach_standard_annotations(
+        sce,
+        cell_metadata = cell_metadata,
+        feature_metadata = feature_metadata,
         sample_col = sample_col,
         batch_col = batch_col,
         condition_col = condition_col,
@@ -195,45 +158,20 @@ CreateBacObject <- function(
         condition_value = condition_value,
         time_value = time_value
     )
-    merged_rowdata <- .scprokar_align_data_frame(
-        if (!is.null(feature_metadata)) feature_metadata else
-            as.data.frame(SummarizedExperiment::rowData(sce)),
-        ids = genes,
-        what = "feature_metadata"
-    )
 
-    SummarizedExperiment::colData(sce) <- S4Vectors::DataFrame(merged_coldata)
-    SummarizedExperiment::rowData(sce) <- S4Vectors::DataFrame(merged_rowdata)
-
-    .scprokar_match_columns(
+    sce <- .scprokar_record_creation_metadata(
         sce,
-        columns = c(sample_col, batch_col, condition_col, time_col),
-        label = "annotation"
-    )
-
-    meta <- .scprokar_get_metadata(sce)
-    meta$package <- "SCProkaR"
-    meta$version <- .scprokar_package_version()
-    meta$created <- as.character(Sys.time())
-    meta$organism <- organism
-    meta$columns <- list(
+        organism = organism,
         sample_col = sample_col,
         batch_col = batch_col,
         condition_col = condition_col,
-        time_col = time_col
+        time_col = time_col,
+        seurat_info = seurat_info,
+        tenx_info = tenx_info
     )
-    meta$assays <- list(counts = "counts")
-    if (!is.null(seurat_info)) {
-        meta$seurat <- seurat_info
-    }
-    if (!is.null(tenx_info)) {
-        meta$tenx <- tenx_info
-    }
-
-    sce <- .scprokar_set_metadata(sce, meta)
 
     if (isTRUE(run_unintegrated)) {
-        sce <- .scprokar_run_unintegrated_workflow(
+        sce <- .scprokar_apply_unintegrated_workflow(
             sce,
             feature_set = unintegrated_feature_set,
             dims = unintegrated_dims,
@@ -243,17 +181,6 @@ CreateBacObject <- function(
             resolution = unintegrated_resolution,
             algorithm = unintegrated_algorithm
         )
-        meta <- .scprokar_get_metadata(sce)
-        meta$unintegrated <- list(
-            feature_set = unintegrated_feature_set,
-            dims = unintegrated_dims,
-            cluster_col = unintegrated_cluster_col,
-            umap_name = unintegrated_umap_name,
-            k = unintegrated_k,
-            resolution = unintegrated_resolution,
-            algorithm = unintegrated_algorithm
-        )
-        sce <- .scprokar_set_metadata(sce, meta)
     }
 
     sce
@@ -340,85 +267,12 @@ MergeBacObjects <- function(
     gene_mode = c("intersect", "union")
 ) {
     gene_mode <- match.arg(gene_mode)
-    dots <- list(...)
-    if (!is.null(objects)) {
-        dots <- c(dots, objects)
-    }
-    dots <- Filter(Negate(is.null), dots)
-
-    if (length(dots) < 2) {
-        stop(
-            "Provide at least two SingleCellExperiment objects to merge.",
-            call. = FALSE
-        )
-    }
-    if (!all(vapply(dots, methods::is, logical(1), "SingleCellExperiment"))) {
-        stop(
-        "All inputs to MergeBacObjects() must be SingleCellExperiment objects.",
-        call. = FALSE
-        )
-    }
-
+    dots <- .scprokar_collect_merge_inputs(list(...), objects)
     dots <- .scprokar_prepare_objects_for_merge(dots)
+    genes <- .scprokar_resolve_merge_genes(dots, gene_mode = gene_mode)
 
-    gene_sets <- lapply(dots, rownames)
-    genes <- if (gene_mode == "intersect") {
-        Reduce(intersect, gene_sets)
-    } else {
-        Reduce(union, gene_sets)
-    }
-    if (length(genes) == 0) {
-        stop(
-            "No genes remained after applying `gene_mode = \"", gene_mode,
-            "\"`.",
-            call. = FALSE
-        )
-    }
-
-    counts_list <- lapply(dots, function(sce) {
-        counts <- SummarizedExperiment::assay(sce, "counts")
-        .scprokar_expand_counts(counts, genes)
-    })
-    merged_counts <- Reduce(Matrix::cbind2, counts_list)
-    merged_counts <- .scprokar_as_dgC(merged_counts)
-
-    coldata_list <- lapply(dots, function(sce) {
-        as.data.frame(SummarizedExperiment::colData(sce))
-    })
-    merged_coldata <- do.call(rbind, coldata_list)
-    rownames(merged_coldata) <- unlist(
-        lapply(dots, colnames),
-        use.names = FALSE
-    )
-
-    rowdata_list <- lapply(dots, function(sce) {
-        df <- as.data.frame(SummarizedExperiment::rowData(sce))
-        df <- df[match(rownames(sce), rownames(df)), , drop = FALSE]
-        rownames(df) <- rownames(sce)
-        df
-    })
-    merged_rowdata <- .scprokar_merge_rowdata(rowdata_list, genes)
-
-    merged <- SingleCellExperiment::SingleCellExperiment(
-        assays = list(counts = merged_counts),
-        colData = S4Vectors::DataFrame(merged_coldata),
-        rowData = S4Vectors::DataFrame(merged_rowdata)
-    )
-
-    if (all(vapply(
-        dots,
-        function(sce) "logcounts" %in%
-            SummarizedExperiment::assayNames(sce),
-        logical(1)
-    ))) {
-        logcounts_list <- lapply(dots, function(sce) {
-            logcounts <- SummarizedExperiment::assay(sce, "logcounts")
-            .scprokar_expand_counts(logcounts, genes)
-        })
-        SummarizedExperiment::assay(merged, "logcounts") <- .scprokar_as_dgC(
-            Reduce(Matrix::cbind2, logcounts_list)
-        )
-    }
+    merged <- .scprokar_assemble_merged_sce(dots, genes)
+    merged <- .scprokar_add_merged_logcounts(merged, dots, genes)
 
     merged_reduction <- .scprokar_merge_reduced_dims2(dots)
     for (reduction_name in names(merged_reduction$kept)) {
@@ -1065,4 +919,306 @@ MergeBacObjects <- function(
 
     proposed <- paste(prefix, colnames(sce), sep = "_")
     make.unique(proposed, sep = "_")
+}
+
+#' Import raw input into a standardized SingleCellExperiment
+#'
+#' Dispatches on the class of `x` and returns the imported object together
+#' with any Seurat or 10x provenance recorded during import.
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_ingest_object_input <- function(
+    x,
+    counts_assay = "counts",
+    feature_name_col = NULL,
+    seurat_assay = NULL,
+    seurat_layer = "counts",
+    transfer_reductions = TRUE
+) {
+    seurat_info <- NULL
+    tenx_info <- NULL
+
+    if (methods::is(x, "SingleCellExperiment")) {
+        sce <- .scprokar_prepare_sce_input(
+            x,
+            counts_assay = counts_assay,
+            feature_name_col = feature_name_col
+        )
+        if (!counts_assay %in% SummarizedExperiment::assayNames(sce)) {
+            stop(
+                "Assay '", counts_assay, "' was not found in `x`.",
+                call. = FALSE
+            )
+        }
+        counts <- SummarizedExperiment::assay(sce, counts_assay)
+        .scprokar_stopifnot_counts(counts)
+        SummarizedExperiment::assay(sce, "counts") <- .scprokar_as_dgC(counts)
+    } else if (methods::is(x, "Seurat")) {
+        seurat_payload <- .scprokar_from_seurat(
+            x,
+            seurat_assay = seurat_assay,
+            seurat_layer = seurat_layer,
+            transfer_reductions = transfer_reductions
+        )
+        sce <- seurat_payload$sce
+        seurat_info <- seurat_payload$seurat
+    } else if (is.character(x) && length(x) == 1L && dir.exists(x)) {
+        tenx_payload <- .scprokar_from_10x_dir(x)
+        sce <- .scprokar_prepare_sce_input(
+            tenx_payload$sce,
+            counts_assay = "counts",
+            feature_name_col = feature_name_col
+        )
+        tenx_info <- tenx_payload$tenx
+    } else {
+        .scprokar_stopifnot_counts(x)
+        counts <- .scprokar_as_dgC(x)
+        sce <- SingleCellExperiment::SingleCellExperiment(
+            assays = list(counts = counts)
+        )
+    }
+
+    list(sce = sce, seurat = seurat_info, tenx = tenx_info)
+}
+
+#' Align cell and feature metadata onto a SingleCellExperiment
+#'
+#' Aligns supplied (or existing) metadata to the object dimnames, applies any
+#' fixed annotation values, and validates the requested annotation columns.
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_attach_standard_annotations <- function(
+    sce,
+    cell_metadata = NULL,
+    feature_metadata = NULL,
+    sample_col = NULL,
+    batch_col = NULL,
+    condition_col = NULL,
+    time_col = NULL,
+    sample_id_value = NULL,
+    batch_value = NULL,
+    condition_value = NULL,
+    time_value = NULL
+) {
+    cells <- colnames(sce)
+    genes <- rownames(sce)
+
+    merged_coldata <- .scprokar_align_data_frame(
+        if (!is.null(cell_metadata)) cell_metadata else
+            as.data.frame(SummarizedExperiment::colData(sce)),
+        ids = cells,
+        what = "cell_metadata"
+    )
+    merged_coldata <- .scprokar_apply_fixed_metadata(
+        merged_coldata,
+        ids = cells,
+        sample_col = sample_col,
+        batch_col = batch_col,
+        condition_col = condition_col,
+        time_col = time_col,
+        sample_id_value = sample_id_value,
+        batch_value = batch_value,
+        condition_value = condition_value,
+        time_value = time_value
+    )
+    merged_rowdata <- .scprokar_align_data_frame(
+        if (!is.null(feature_metadata)) feature_metadata else
+            as.data.frame(SummarizedExperiment::rowData(sce)),
+        ids = genes,
+        what = "feature_metadata"
+    )
+
+    SummarizedExperiment::colData(sce) <- S4Vectors::DataFrame(merged_coldata)
+    SummarizedExperiment::rowData(sce) <- S4Vectors::DataFrame(merged_rowdata)
+
+    .scprokar_match_columns(
+        sce,
+        columns = c(sample_col, batch_col, condition_col, time_col),
+        label = "annotation"
+    )
+
+    sce
+}
+
+#' Record SCProkaR provenance metadata on a newly created object
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_record_creation_metadata <- function(
+    sce,
+    organism,
+    sample_col = NULL,
+    batch_col = NULL,
+    condition_col = NULL,
+    time_col = NULL,
+    seurat_info = NULL,
+    tenx_info = NULL
+) {
+    meta <- .scprokar_get_metadata(sce)
+    meta$package <- "SCProkaR"
+    meta$version <- .scprokar_package_version()
+    meta$created <- as.character(Sys.time())
+    meta$organism <- organism
+    meta$columns <- list(
+        sample_col = sample_col,
+        batch_col = batch_col,
+        condition_col = condition_col,
+        time_col = time_col
+    )
+    meta$assays <- list(counts = "counts")
+    if (!is.null(seurat_info)) {
+        meta$seurat <- seurat_info
+    }
+    if (!is.null(tenx_info)) {
+        meta$tenx <- tenx_info
+    }
+
+    .scprokar_set_metadata(sce, meta)
+}
+
+#' Collect and validate the objects supplied to MergeBacObjects()
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_collect_merge_inputs <- function(dots, objects = NULL) {
+    if (!is.null(objects)) {
+        dots <- c(dots, objects)
+    }
+    dots <- Filter(Negate(is.null), dots)
+
+    if (length(dots) < 2) {
+        stop(
+            "Provide at least two SingleCellExperiment objects to merge.",
+            call. = FALSE
+        )
+    }
+    if (!all(vapply(dots, methods::is, logical(1), "SingleCellExperiment"))) {
+        stop(
+        "All inputs to MergeBacObjects() must be SingleCellExperiment objects.",
+        call. = FALSE
+        )
+    }
+
+    dots
+}
+
+#' Resolve the gene universe shared by the objects being merged
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_resolve_merge_genes <- function(objects, gene_mode) {
+    gene_sets <- lapply(objects, rownames)
+    genes <- if (gene_mode == "intersect") {
+        Reduce(intersect, gene_sets)
+    } else {
+        Reduce(union, gene_sets)
+    }
+    if (length(genes) == 0) {
+        stop(
+            "No genes remained after applying `gene_mode = \"", gene_mode,
+            "\"`.",
+            call. = FALSE
+        )
+    }
+    genes
+}
+
+#' Build the merged SingleCellExperiment from counts and aligned metadata
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_assemble_merged_sce <- function(objects, genes) {
+    counts_list <- lapply(objects, function(sce) {
+        counts <- SummarizedExperiment::assay(sce, "counts")
+        .scprokar_expand_counts(counts, genes)
+    })
+    merged_counts <- Reduce(Matrix::cbind2, counts_list)
+    merged_counts <- .scprokar_as_dgC(merged_counts)
+
+    coldata_list <- lapply(objects, function(sce) {
+        as.data.frame(SummarizedExperiment::colData(sce))
+    })
+    merged_coldata <- do.call(rbind, coldata_list)
+    rownames(merged_coldata) <- unlist(
+        lapply(objects, colnames),
+        use.names = FALSE
+    )
+
+    rowdata_list <- lapply(objects, function(sce) {
+        df <- as.data.frame(SummarizedExperiment::rowData(sce))
+        df <- df[match(rownames(sce), rownames(df)), , drop = FALSE]
+        rownames(df) <- rownames(sce)
+        df
+    })
+    merged_rowdata <- .scprokar_merge_rowdata(rowdata_list, genes)
+
+    SingleCellExperiment::SingleCellExperiment(
+        assays = list(counts = merged_counts),
+        colData = S4Vectors::DataFrame(merged_coldata),
+        rowData = S4Vectors::DataFrame(merged_rowdata)
+    )
+}
+
+#' Add a merged logcounts assay when every input object provides one
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_add_merged_logcounts <- function(merged, objects, genes) {
+    has_logcounts <- all(vapply(
+        objects,
+        function(sce) "logcounts" %in%
+            SummarizedExperiment::assayNames(sce),
+        logical(1)
+    ))
+    if (!has_logcounts) {
+        return(merged)
+    }
+
+    logcounts_list <- lapply(objects, function(sce) {
+        logcounts <- SummarizedExperiment::assay(sce, "logcounts")
+        .scprokar_expand_counts(logcounts, genes)
+    })
+    SummarizedExperiment::assay(merged, "logcounts") <- .scprokar_as_dgC(
+        Reduce(Matrix::cbind2, logcounts_list)
+    )
+    merged
+}
+
+#' Run the unintegrated workflow and record its parameters in metadata
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_apply_unintegrated_workflow <- function(
+    sce,
+    feature_set,
+    dims,
+    cluster_col,
+    umap_name,
+    k,
+    resolution,
+    algorithm
+) {
+    sce <- .scprokar_run_unintegrated_workflow(
+        sce,
+        feature_set = feature_set,
+        dims = dims,
+        cluster_col = cluster_col,
+        umap_name = umap_name,
+        k = k,
+        resolution = resolution,
+        algorithm = algorithm
+    )
+    meta <- .scprokar_get_metadata(sce)
+    meta$unintegrated <- list(
+        feature_set = feature_set,
+        dims = dims,
+        cluster_col = cluster_col,
+        umap_name = umap_name,
+        k = k,
+        resolution = resolution,
+        algorithm = algorithm
+    )
+    .scprokar_set_metadata(sce, meta)
 }

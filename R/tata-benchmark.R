@@ -238,93 +238,19 @@ adjacent_timepoint_auc <- function(
 
     time_levels <- sort(unique(time_numeric[is.finite(time_numeric)]))
     if (length(time_levels) < 2L) {
-        empty_pairs <- data.frame(
-            group = character(0),
-            time_earlier = numeric(0),
-            time_later = numeric(0),
-            n_earlier = integer(0),
-            n_later = integer(0),
-            auc = numeric(0),
-            weight = numeric(0),
-            stringsAsFactors = FALSE
-        )
-        return(list(
-            summary = data.frame(
-                adjacent_timepoint_auc = NA_real_,
-                n_valid_comparisons = 0L,
-                averaging = average,
-                stringsAsFactors = FALSE
-            ),
-            pair_table = empty_pairs
-        ))
+        return(.empty_auc_result(average))
     }
 
-    pair_rows <- list()
-    pair_idx <- 0L
-
-    for (group_name in unique(group)) {
-        idx_group <- which(
-            group == group_name &
-                is.finite(pseudotime) &
-                is.finite(time_numeric)
-        )
-        if (length(idx_group) == 0L) {
-            next
-        }
-
-        for (k in seq_len(length(time_levels) - 1L)) {
-            earlier <- time_levels[k]
-            later <- time_levels[k + 1L]
-            idx_earlier <- idx_group[time_numeric[idx_group] == earlier]
-            idx_later <- idx_group[time_numeric[idx_group] == later]
-
-            if (length(idx_earlier) < min_cells ||
-                    length(idx_later) < min_cells) {
-                next
-            }
-
-            combined <- c(pseudotime[idx_earlier], pseudotime[idx_later])
-            ranks <- rank(combined, ties.method = "average")
-            n_earlier <- length(idx_earlier)
-            n_later <- length(idx_later)
-            rank_later <- ranks[(n_earlier + 1L):(n_earlier + n_later)]
-            u_stat <- sum(rank_later) - n_later * (n_later + 1) / 2
-            auc_value <- u_stat / (n_earlier * n_later)
-
-            pair_idx <- pair_idx + 1L
-            pair_rows[[pair_idx]] <- data.frame(
-                group = group_name,
-                time_earlier = earlier,
-                time_later = later,
-                n_earlier = n_earlier,
-                n_later = n_later,
-                auc = auc_value,
-                weight = n_earlier * n_later,
-                stringsAsFactors = FALSE
-            )
-        }
-    }
+    pair_rows <- .auc_pair_rows(
+        pseudotime = pseudotime,
+        time_numeric = time_numeric,
+        group = group,
+        time_levels = time_levels,
+        min_cells = min_cells
+    )
 
     if (length(pair_rows) == 0L) {
-        pair_table <- data.frame(
-            group = character(0),
-            time_earlier = numeric(0),
-            time_later = numeric(0),
-            n_earlier = integer(0),
-            n_later = integer(0),
-            auc = numeric(0),
-            weight = numeric(0),
-            stringsAsFactors = FALSE
-        )
-        return(list(
-            summary = data.frame(
-                adjacent_timepoint_auc = NA_real_,
-                n_valid_comparisons = 0L,
-                averaging = average,
-                stringsAsFactors = FALSE
-            ),
-            pair_table = pair_table
-        ))
+        return(.empty_auc_result(average))
     }
 
     pair_table <- do.call(rbind, pair_rows)
@@ -537,89 +463,17 @@ directed_reachability_concordance <- function(
     cluster_size <- tapply(seq_along(clusters), clusters, length)
     cluster_names <- names(cluster_median_time)
 
-    pair_rows <- list()
-    pair_idx <- 0L
-
-    for (cluster_a in cluster_names) {
-        for (cluster_b in cluster_names) {
-            if (identical(cluster_a, cluster_b)) {
-                next
-            }
-
-            time_gap <- cluster_median_time[[cluster_b]] -
-                cluster_median_time[[cluster_a]]
-            if (!is.finite(time_gap) || time_gap <= min_time_gap) {
-                next
-            }
-
-            forward_reachable <- is.finite(igraph::distances(
-                cluster_graph,
-                v = cluster_a,
-                to = cluster_b,
-                mode = "out"
-            )[1, 1])
-            backward_reachable <- is.finite(igraph::distances(
-                cluster_graph,
-                v = cluster_b,
-                to = cluster_a,
-                mode = "out"
-            )[1, 1])
-
-            reachability_score <- if (forward_reachable &&
-                    !backward_reachable) {
-                1
-            } else if (forward_reachable && backward_reachable) {
-                0.5
-            } else {
-                0
-            }
-
-            pair_idx <- pair_idx + 1L
-            pair_rows[[pair_idx]] <- data.frame(
-                cluster_earlier = cluster_a,
-                cluster_later = cluster_b,
-                median_time_earlier = cluster_median_time[[cluster_a]],
-                median_time_later = cluster_median_time[[cluster_b]],
-                time_gap = time_gap,
-                size_earlier = cluster_size[[cluster_a]],
-                size_later = cluster_size[[cluster_b]],
-                forward_reachable = forward_reachable,
-                backward_reachable = backward_reachable,
-                reachability_score = reachability_score,
-                weight = if (weight_by == "cells") {
-                    cluster_size[[cluster_a]] * cluster_size[[cluster_b]]
-                } else {
-                    1
-                },
-                stringsAsFactors = FALSE
-            )
-        }
-    }
+    pair_rows <- .reachability_pair_rows(
+        cluster_graph = cluster_graph,
+        cluster_names = cluster_names,
+        cluster_median_time = cluster_median_time,
+        cluster_size = cluster_size,
+        min_time_gap = min_time_gap,
+        weight_by = weight_by
+    )
 
     if (length(pair_rows) == 0L) {
-        pair_table <- data.frame(
-            cluster_earlier = character(0),
-            cluster_later = character(0),
-            median_time_earlier = numeric(0),
-            median_time_later = numeric(0),
-            time_gap = numeric(0),
-            size_earlier = integer(0),
-            size_later = integer(0),
-            forward_reachable = logical(0),
-            backward_reachable = logical(0),
-            reachability_score = numeric(0),
-            weight = numeric(0),
-            stringsAsFactors = FALSE
-        )
-        return(list(
-            summary = data.frame(
-                n_ordered_cluster_pairs = 0L,
-                directed_reachability_concordance = NA_real_,
-                weighting = weight_by,
-                stringsAsFactors = FALSE
-            ),
-            pair_table = pair_table
-        ))
+        return(.empty_reachability_result(weight_by))
     }
 
     pair_table <- do.call(rbind, pair_rows)
@@ -766,4 +620,244 @@ anticausal_edge_mass <- function(
         ),
         edge_table = out_edge_table
     )
+}
+
+
+#' Empty adjacent-timepoint AUC pair table
+#'
+#' @keywords internal
+#' @noRd
+.empty_auc_pair_table <- function() {
+    data.frame(
+        group = character(0),
+        time_earlier = numeric(0),
+        time_later = numeric(0),
+        n_earlier = integer(0),
+        n_later = integer(0),
+        auc = numeric(0),
+        weight = numeric(0),
+        stringsAsFactors = FALSE
+    )
+}
+
+
+#' Empty adjacent-timepoint AUC result for a given averaging scheme
+#'
+#' @keywords internal
+#' @noRd
+.empty_auc_result <- function(average) {
+    list(
+        summary = data.frame(
+            adjacent_timepoint_auc = NA_real_,
+            n_valid_comparisons = 0L,
+            averaging = average,
+            stringsAsFactors = FALSE
+        ),
+        pair_table = .empty_auc_pair_table()
+    )
+}
+
+
+#' Mann-Whitney AUC of later versus earlier pseudotime values
+#'
+#' @keywords internal
+#' @noRd
+.mann_whitney_auc <- function(values_earlier, values_later) {
+    combined <- c(values_earlier, values_later)
+    ranks <- rank(combined, ties.method = "average")
+    n_earlier <- length(values_earlier)
+    n_later <- length(values_later)
+    rank_later <- ranks[(n_earlier + 1L):(n_earlier + n_later)]
+    u_stat <- sum(rank_later) - n_later * (n_later + 1) / 2
+    u_stat / (n_earlier * n_later)
+}
+
+
+#' Build one adjacent-timepoint AUC row per group and timepoint pair
+#'
+#' @keywords internal
+#' @noRd
+.auc_pair_rows <- function(
+    pseudotime,
+    time_numeric,
+    group,
+    time_levels,
+    min_cells
+) {
+    pair_rows <- list()
+    pair_idx <- 0L
+
+    for (group_name in unique(group)) {
+        idx_group <- which(
+            group == group_name &
+                is.finite(pseudotime) &
+                is.finite(time_numeric)
+        )
+        if (length(idx_group) == 0L) {
+            next
+        }
+
+        for (k in seq_len(length(time_levels) - 1L)) {
+            earlier <- time_levels[k]
+            later <- time_levels[k + 1L]
+            idx_earlier <- idx_group[time_numeric[idx_group] == earlier]
+            idx_later <- idx_group[time_numeric[idx_group] == later]
+
+            if (length(idx_earlier) < min_cells ||
+                    length(idx_later) < min_cells) {
+                next
+            }
+
+            n_earlier <- length(idx_earlier)
+            n_later <- length(idx_later)
+            auc_value <- .mann_whitney_auc(
+                pseudotime[idx_earlier],
+                pseudotime[idx_later]
+            )
+
+            pair_idx <- pair_idx + 1L
+            pair_rows[[pair_idx]] <- data.frame(
+                group = group_name,
+                time_earlier = earlier,
+                time_later = later,
+                n_earlier = n_earlier,
+                n_later = n_later,
+                auc = auc_value,
+                weight = n_earlier * n_later,
+                stringsAsFactors = FALSE
+            )
+        }
+    }
+
+    pair_rows
+}
+
+
+#' Empty directed reachability pair table
+#'
+#' @keywords internal
+#' @noRd
+.empty_reachability_pair_table <- function() {
+    data.frame(
+        cluster_earlier = character(0),
+        cluster_later = character(0),
+        median_time_earlier = numeric(0),
+        median_time_later = numeric(0),
+        time_gap = numeric(0),
+        size_earlier = integer(0),
+        size_later = integer(0),
+        forward_reachable = logical(0),
+        backward_reachable = logical(0),
+        reachability_score = numeric(0),
+        weight = numeric(0),
+        stringsAsFactors = FALSE
+    )
+}
+
+
+#' Empty directed reachability result for a given weighting scheme
+#'
+#' @keywords internal
+#' @noRd
+.empty_reachability_result <- function(weight_by) {
+    list(
+        summary = data.frame(
+            n_ordered_cluster_pairs = 0L,
+            directed_reachability_concordance = NA_real_,
+            weighting = weight_by,
+            stringsAsFactors = FALSE
+        ),
+        pair_table = .empty_reachability_pair_table()
+    )
+}
+
+
+#' Test whether one cluster reaches another along directed graph edges
+#'
+#' @keywords internal
+#' @noRd
+.cluster_reachable <- function(cluster_graph, from, to) {
+    is.finite(igraph::distances(
+        cluster_graph,
+        v = from,
+        to = to,
+        mode = "out"
+    )[1, 1])
+}
+
+
+#' Score a single ordered cluster pair by directed reachability
+#'
+#' @keywords internal
+#' @noRd
+.reachability_score <- function(forward_reachable, backward_reachable) {
+    if (forward_reachable && !backward_reachable) {
+        1
+    } else if (forward_reachable && backward_reachable) {
+        0.5
+    } else {
+        0
+    }
+}
+
+
+#' Build one row per forward-in-time ordered cluster pair
+#'
+#' @keywords internal
+#' @noRd
+.reachability_pair_rows <- function(
+    cluster_graph,
+    cluster_names,
+    cluster_median_time,
+    cluster_size,
+    min_time_gap,
+    weight_by
+) {
+    pair_rows <- list()
+    pair_idx <- 0L
+
+    for (cluster_a in cluster_names) {
+        for (cluster_b in cluster_names) {
+            if (identical(cluster_a, cluster_b)) {
+                next
+            }
+
+            time_gap <- cluster_median_time[[cluster_b]] -
+                cluster_median_time[[cluster_a]]
+            if (!is.finite(time_gap) || time_gap <= min_time_gap) {
+                next
+            }
+
+            forward_reachable <- .cluster_reachable(
+                cluster_graph, cluster_a, cluster_b
+            )
+            backward_reachable <- .cluster_reachable(
+                cluster_graph, cluster_b, cluster_a
+            )
+
+            pair_idx <- pair_idx + 1L
+            pair_rows[[pair_idx]] <- data.frame(
+                cluster_earlier = cluster_a,
+                cluster_later = cluster_b,
+                median_time_earlier = cluster_median_time[[cluster_a]],
+                median_time_later = cluster_median_time[[cluster_b]],
+                time_gap = time_gap,
+                size_earlier = cluster_size[[cluster_a]],
+                size_later = cluster_size[[cluster_b]],
+                forward_reachable = forward_reachable,
+                backward_reachable = backward_reachable,
+                reachability_score = .reachability_score(
+                    forward_reachable, backward_reachable
+                ),
+                weight = if (weight_by == "cells") {
+                    cluster_size[[cluster_a]] * cluster_size[[cluster_b]]
+                } else {
+                    1
+                },
+                stringsAsFactors = FALSE
+            )
+        }
+    }
+
+    pair_rows
 }

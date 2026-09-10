@@ -84,76 +84,52 @@ run_tata <- function(
     cluster_method <- match.arg(cluster_method)
     time_weight_mode <- match.arg(time_weight_mode)
 
-    if (isTRUE(use_time) &&
-            !time_col %in% colnames(SummarizedExperiment::colData(sce))) {
-        stop(
-            "Time column `", time_col,
-            "` is not present in colData(sce).",
-            call. = FALSE
-        )
-    }
-
-    if (!is.numeric(alpha) || length(alpha) != 1L || alpha < 0) {
-        stop(
-            "`alpha` must be a single non-negative numeric value.",
-            call. = FALSE
-        )
-    }
-
-    if (!is.numeric(beta) || length(beta) != 1L || beta < 0) {
-        stop(
-            "`beta` must be a single non-negative numeric value.",
-            call. = FALSE
-        )
-    }
+    .validate_tata_workflow_args(
+        sce = sce,
+        time_col = time_col,
+        use_time = use_time,
+        alpha = alpha,
+        beta = beta
+    )
 
     sce <- .ensure_reduced_dim(sce, dimred = dimred, n_pcs = n_pcs_if_missing)
     knn_result <- build_knn_graph(x = sce, dimred = dimred, dims = dims, k = k)
 
-    inferred_cluster <- cluster_graph_states(
-        cell_graph = knn_result$graph,
-        method = cluster_method
+    cluster_stage <- .tata_cluster_stage(
+        sce = sce,
+        knn_result = knn_result,
+        cluster_method = cluster_method,
+        use_time = use_time,
+        time_col = time_col,
+        refine_clusters = refine_clusters,
+        refine_min_cells = refine_min_cells,
+        refine_min_split_fraction = refine_min_split_fraction
     )
-
-    if (isTRUE(refine_clusters) && isTRUE(use_time)) {
-        if (is.null(refine_min_cells)) {
-            refine_min_cells <- max(40L, 2L * knn_result$k)
-        }
-
-        inferred_cluster <- .refine_clusters_temporally(
-            clusters = inferred_cluster,
-            timepoint = SummarizedExperiment::colData(sce)[[time_col]],
-            embedding = knn_result$embedding,
-            min_cluster_size = refine_min_cells,
-            min_split_fraction = refine_min_split_fraction
-        )
-    }
+    inferred_cluster <- cluster_stage$clusters
+    refine_min_cells <- cluster_stage$refine_min_cells
 
     SummarizedExperiment::colData(sce)[[cluster_col]] <- inferred_cluster
 
-    topology_table <- compute_topology_weights(
-        adjacency = knn_result$adjacency,
-        clusters = inferred_cluster
+    weight_tables <- .tata_weight_tables(
+        sce = sce,
+        knn_result = knn_result,
+        clusters = inferred_cluster,
+        use_time = use_time,
+        time_col = time_col
     )
-
-    time_table <- if (isTRUE(use_time)) {
-        compute_time_weights(
-            adjacency = knn_result$adjacency,
-            clusters = inferred_cluster,
-            timepoint = SummarizedExperiment::colData(sce)[[time_col]]
-        )
-    } else {
-        .make_neutral_time_table(inferred_cluster)
-    }
+    topology_table <- weight_tables$topology_table
+    time_table <- weight_tables$time_table
 
     tata_graph_result <- build_tata_graph(
         topology_table = topology_table,
         time_table = time_table,
         clusters = inferred_cluster,
         embedding = knn_result$embedding,
-        timepoint = if (isTRUE(use_time))
-            SummarizedExperiment::colData(sce)[[time_col]]
-        else rep(NA_real_, ncol(sce)),
+        timepoint = .tata_timepoint_vector(
+            sce = sce,
+            use_time = use_time,
+            time_col = time_col
+        ),
         alpha = alpha,
         beta = beta,
         direction_threshold = direction_threshold,
@@ -161,72 +137,28 @@ run_tata <- function(
         time_weight_mode = time_weight_mode
     )
 
-    if (isTRUE(do_pseudotime)) {
-        pseudotime_result <- compute_tata_pseudotime(
-            cluster_graph = tata_graph_result$graph,
-            sce = sce,
-            cluster_col = cluster_col,
-            time_col = if (isTRUE(use_time)) time_col else NULL,
-            root_cluster = root_cluster
-        )
+    pseudotime_stage <- .tata_pseudotime_stage(
+        sce = sce,
+        cluster_graph = tata_graph_result$graph,
+        cluster_col = cluster_col,
+        use_time = use_time,
+        time_col = time_col,
+        root_cluster = root_cluster,
+        do_pseudotime = do_pseudotime
+    )
+    sce <- pseudotime_stage$sce
+    pseudotime_result <- pseudotime_stage$pseudotime
 
-        SummarizedExperiment::colData(sce)$tata_pseudotime <-
-            pseudotime_result$cell_pseudotime
-        SummarizedExperiment::colData(sce)$tata_pseudotime_scaled <-
-            pseudotime_result$cell_pseudotime_scaled
-    } else {
-        pseudotime_result <- list(
-            root_cluster = NULL,
-            cluster_pseudotime = NULL,
-            cell_pseudotime = NULL,
-            cell_pseudotime_scaled = NULL,
-            within_cluster_step = NULL
-        )
-    }
-
-    if (isTRUE(do_branch_probs)) {
-        branch_result <- compute_tata_branch_probabilities(
-            tata_result = list(
-                sce = sce,
-                cluster_graph = tata_graph_result$graph,
-                cluster_pseudotime = pseudotime_result$cluster_pseudotime,
-                parameters = list(
-                    cluster_col = cluster_col,
-                    root_cluster = pseudotime_result$root_cluster
-                )
-            ),
-            expected_branches = expected_branches
-        )
-
-        prob_cols <- branch_result$branch_probability_columns
-        prob_values <-
-            branch_result$branch_probabilities[, prob_cols, drop = FALSE]
-        rownames(prob_values) <- branch_result$branch_probabilities$cell_id
-        prob_values <- prob_values[colnames(sce), , drop = FALSE]
-
-        for (col_name in prob_cols) {
-            SummarizedExperiment::colData(sce)[[col_name]] <-
-                prob_values[[col_name]]
-        }
-        SummarizedExperiment::colData(sce)$tata_branch_entropy <-
-            branch_result$branch_probabilities$tata_branch_entropy
-        SummarizedExperiment::colData(sce)$tata_branch_plasticity <-
-            branch_result$branch_probabilities$tata_branch_plasticity
-        SummarizedExperiment::colData(sce)$tata_branch_commitment <-
-            branch_result$branch_probabilities$tata_branch_commitment
-        SummarizedExperiment::colData(sce)$tata_max_branch_probability <-
-            branch_result$branch_probabilities$tata_max_branch_probability
-        SummarizedExperiment::colData(sce)$tata_branch_assignment <-
-            branch_result$branch_probabilities$tata_branch_assignment
-    } else {
-        branch_result <- list(
-            terminal_clusters = NULL,
-            transition_matrix = NULL,
-            cluster_branch_probabilities = NULL,
-            branch_probabilities = NULL,
-            branch_probability_columns = character(0)
-        )
-    }
+    branch_stage <- .tata_branch_stage(
+        sce = sce,
+        cluster_graph = tata_graph_result$graph,
+        pseudotime_result = pseudotime_result,
+        cluster_col = cluster_col,
+        expected_branches = expected_branches,
+        do_branch_probs = do_branch_probs
+    )
+    sce <- branch_stage$sce
+    branch_result <- branch_stage$branch
 
     cell_space <- .compute_tata_cell_space(
         embedding = knn_result$embedding,
@@ -259,6 +191,283 @@ run_tata <- function(
         root_cluster = pseudotime_result$root_cluster
     )
 
+    .assemble_tata_result(
+        sce = sce,
+        knn_result = knn_result,
+        tata_graph_result = tata_graph_result,
+        pseudotime_result = pseudotime_result,
+        branch_result = branch_result,
+        cell_space = cell_space,
+        topology_table = topology_table,
+        time_table = time_table,
+        parameters = parameters
+    )
+}
+
+
+#' Validate the time and edge-weight arguments of the TATA workflow
+#'
+#' @keywords internal
+#' @noRd
+.validate_tata_workflow_args <- function(
+    sce,
+    time_col,
+    use_time,
+    alpha,
+    beta
+) {
+    if (isTRUE(use_time) &&
+            !time_col %in% colnames(SummarizedExperiment::colData(sce))) {
+        stop(
+            "Time column `", time_col,
+            "` is not present in colData(sce).",
+            call. = FALSE
+        )
+    }
+
+    if (!is.numeric(alpha) || length(alpha) != 1L || alpha < 0) {
+        stop(
+            "`alpha` must be a single non-negative numeric value.",
+            call. = FALSE
+        )
+    }
+
+    if (!is.numeric(beta) || length(beta) != 1L || beta < 0) {
+        stop(
+            "`beta` must be a single non-negative numeric value.",
+            call. = FALSE
+        )
+    }
+
+    invisible(TRUE)
+}
+
+
+#' Experimental time vector used for graph abstraction
+#'
+#' Returns the stored time labels when known time is used, and an all-missing
+#' vector of the right length otherwise.
+#'
+#' @keywords internal
+#' @noRd
+.tata_timepoint_vector <- function(sce, use_time, time_col) {
+    if (isTRUE(use_time)) {
+        SummarizedExperiment::colData(sce)[[time_col]]
+    } else {
+        rep(NA_real_, ncol(sce))
+    }
+}
+
+
+#' Infer cell states and optionally refine them with experimental time
+#'
+#' @return A list with the cluster labels and the minimum cluster size that
+#'   was actually used for temporal refinement.
+#'
+#' @keywords internal
+#' @noRd
+.tata_cluster_stage <- function(
+    sce,
+    knn_result,
+    cluster_method,
+    use_time,
+    time_col,
+    refine_clusters,
+    refine_min_cells,
+    refine_min_split_fraction
+) {
+    inferred_cluster <- cluster_graph_states(
+        cell_graph = knn_result$graph,
+        method = cluster_method
+    )
+
+    if (isTRUE(refine_clusters) && isTRUE(use_time)) {
+        if (is.null(refine_min_cells)) {
+            refine_min_cells <- max(40L, 2L * knn_result$k)
+        }
+
+        inferred_cluster <- .refine_clusters_temporally(
+            clusters = inferred_cluster,
+            timepoint = SummarizedExperiment::colData(sce)[[time_col]],
+            embedding = knn_result$embedding,
+            min_cluster_size = refine_min_cells,
+            min_split_fraction = refine_min_split_fraction
+        )
+    }
+
+    list(
+        clusters = inferred_cluster,
+        refine_min_cells = refine_min_cells
+    )
+}
+
+
+#' Compute the topology and time edge-weight tables
+#'
+#' @return A list with the topology table and the time table.
+#'
+#' @keywords internal
+#' @noRd
+.tata_weight_tables <- function(
+    sce,
+    knn_result,
+    clusters,
+    use_time,
+    time_col
+) {
+    topology_table <- compute_topology_weights(
+        adjacency = knn_result$adjacency,
+        clusters = clusters
+    )
+
+    time_table <- if (isTRUE(use_time)) {
+        compute_time_weights(
+            adjacency = knn_result$adjacency,
+            clusters = clusters,
+            timepoint = SummarizedExperiment::colData(sce)[[time_col]]
+        )
+    } else {
+        .make_neutral_time_table(clusters)
+    }
+
+    list(
+        topology_table = topology_table,
+        time_table = time_table
+    )
+}
+
+
+#' Compute TATA pseudotime and store it on the object
+#'
+#' @return A list with the updated `sce` and the pseudotime result.
+#'
+#' @keywords internal
+#' @noRd
+.tata_pseudotime_stage <- function(
+    sce,
+    cluster_graph,
+    cluster_col,
+    use_time,
+    time_col,
+    root_cluster,
+    do_pseudotime
+) {
+    if (isTRUE(do_pseudotime)) {
+        pseudotime_result <- compute_tata_pseudotime(
+            cluster_graph = cluster_graph,
+            sce = sce,
+            cluster_col = cluster_col,
+            time_col = if (isTRUE(use_time)) time_col else NULL,
+            root_cluster = root_cluster
+        )
+
+        SummarizedExperiment::colData(sce)$tata_pseudotime <-
+            pseudotime_result$cell_pseudotime
+        SummarizedExperiment::colData(sce)$tata_pseudotime_scaled <-
+            pseudotime_result$cell_pseudotime_scaled
+    } else {
+        pseudotime_result <- list(
+            root_cluster = NULL,
+            cluster_pseudotime = NULL,
+            cell_pseudotime = NULL,
+            cell_pseudotime_scaled = NULL,
+            within_cluster_step = NULL
+        )
+    }
+
+    list(sce = sce, pseudotime = pseudotime_result)
+}
+
+
+#' Compute terminal-branch probabilities and store them on the object
+#'
+#' @return A list with the updated `sce` and the branch result.
+#'
+#' @keywords internal
+#' @noRd
+.tata_branch_stage <- function(
+    sce,
+    cluster_graph,
+    pseudotime_result,
+    cluster_col,
+    expected_branches,
+    do_branch_probs
+) {
+    if (!isTRUE(do_branch_probs)) {
+        branch_result <- list(
+            terminal_clusters = NULL,
+            transition_matrix = NULL,
+            cluster_branch_probabilities = NULL,
+            branch_probabilities = NULL,
+            branch_probability_columns = character(0)
+        )
+        return(list(sce = sce, branch = branch_result))
+    }
+
+    branch_result <- compute_tata_branch_probabilities(
+        tata_result = list(
+            sce = sce,
+            cluster_graph = cluster_graph,
+            cluster_pseudotime = pseudotime_result$cluster_pseudotime,
+            parameters = list(
+                cluster_col = cluster_col,
+                root_cluster = pseudotime_result$root_cluster
+            )
+        ),
+        expected_branches = expected_branches
+    )
+
+    sce <- .store_tata_branch_coldata(sce = sce, branch_result = branch_result)
+
+    list(sce = sce, branch = branch_result)
+}
+
+
+#' Copy branch probabilities and branch summaries into `colData`
+#'
+#' @keywords internal
+#' @noRd
+.store_tata_branch_coldata <- function(sce, branch_result) {
+    prob_cols <- branch_result$branch_probability_columns
+    prob_values <-
+        branch_result$branch_probabilities[, prob_cols, drop = FALSE]
+    rownames(prob_values) <- branch_result$branch_probabilities$cell_id
+    prob_values <- prob_values[colnames(sce), , drop = FALSE]
+
+    for (col_name in prob_cols) {
+        SummarizedExperiment::colData(sce)[[col_name]] <-
+            prob_values[[col_name]]
+    }
+    SummarizedExperiment::colData(sce)$tata_branch_entropy <-
+        branch_result$branch_probabilities$tata_branch_entropy
+    SummarizedExperiment::colData(sce)$tata_branch_plasticity <-
+        branch_result$branch_probabilities$tata_branch_plasticity
+    SummarizedExperiment::colData(sce)$tata_branch_commitment <-
+        branch_result$branch_probabilities$tata_branch_commitment
+    SummarizedExperiment::colData(sce)$tata_max_branch_probability <-
+        branch_result$branch_probabilities$tata_max_branch_probability
+    SummarizedExperiment::colData(sce)$tata_branch_assignment <-
+        branch_result$branch_probabilities$tata_branch_assignment
+
+    sce
+}
+
+
+#' Store the TATA metadata and assemble the workflow return value
+#'
+#' @keywords internal
+#' @noRd
+.assemble_tata_result <- function(
+    sce,
+    knn_result,
+    tata_graph_result,
+    pseudotime_result,
+    branch_result,
+    cell_space,
+    topology_table,
+    time_table,
+    parameters
+) {
     S4Vectors::metadata(sce)$TATA <- list(
         parameters = parameters,
         cluster_edge_table = tata_graph_result$edge_table,

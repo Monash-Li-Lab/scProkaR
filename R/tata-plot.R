@@ -97,87 +97,21 @@ plot_tata_cluster_graph <- function(
 
     cell_df <- NULL
     if (identical(layout_mode, "embedding")) {
-        sce <- tata_result$sce
-        if (!methods::is(sce, "SingleCellExperiment")) {
-            stop(
-                "`layout_mode = \"embedding\"` requires `tata_result$sce` to ",
-                "be a SingleCellExperiment.",
-                call. = FALSE
-            )
-        }
-
-        if (is.null(dimred)) {
-            if ("UMAP" %in% SingleCellExperiment::reducedDimNames(sce)) {
-                dimred <- "UMAP"
-            } else {
-                stop(
-                    "Please supply `dimred` for `layout_mode = \"embedding\"`.",
-                    call. = FALSE
-                )
-            }
-        }
-
-        if (!dimred %in% SingleCellExperiment::reducedDimNames(sce)) {
-            stop(
-                "Reduced dimension `", dimred,
-                "` is not present in `tata_result$sce`.",
-                call. = FALSE
-            )
-        }
-
-        if (is.null(cluster_col)) {
-            cluster_col <- tata_result$parameters$cluster_col
-        }
-
-        if (is.null(cluster_col) || !cluster_col %in%
-                colnames(SummarizedExperiment::colData(sce))) {
-            stop(
-                "A valid `cluster_col` is required for `layout_mode = ",
-                "\"embedding\"`.",
-                call. = FALSE
-            )
-        }
-
-        embedding <- as.matrix(SingleCellExperiment::reducedDim(sce, dimred))
-        if (ncol(embedding) < 2L) {
-            stop(
-                "The requested reduced dimension must contain at least two ",
-                "columns.",
-                call. = FALSE
-            )
-        }
-
-        meta <- as.data.frame(SummarizedExperiment::colData(sce))
-        meta$cluster_plot <- as.character(meta[[cluster_col]])
-        meta$Dim1 <- embedding[, 1]
-        meta$Dim2 <- embedding[, 2]
-
-        node_df <- stats::aggregate(
-            meta[, c("Dim1", "Dim2")],
-            by = list(cluster = meta$cluster_plot),
-            FUN = stats::median
+        context <- .tata_cluster_embedding_context(
+            tata_result, dimred, cluster_col
         )
-        names(node_df)[2:3] <- c("x", "y")
-        node_df <- merge(
-            graph_vertex_df, node_df,
-            by = "cluster", all.x = TRUE, sort = FALSE
+        dimred <- context$dimred
+        cluster_col <- context$cluster_col
+        node_df <- .tata_cluster_embedding_nodes(
+            context$meta, graph_vertex_df
         )
-        node_df <- node_df[
-            match(graph_vertex_df$cluster, node_df$cluster), ,
-            drop = FALSE
-        ]
 
         if (isTRUE(show_cells)) {
             if (is.null(colour_by)) {
                 colour_by <- cluster_col
             }
 
-            cell_df <- meta[, c("Dim1", "Dim2", "cluster_plot"), drop = FALSE]
-            if (!is.null(colour_by) && colour_by %in% colnames(meta)) {
-                cell_df$colour_value <- meta[[colour_by]]
-            } else {
-                cell_df$colour_value <- "cells"
-            }
+            cell_df <- .tata_cluster_cell_table(context$meta, colour_by)
         }
     } else {
         if (isTRUE(show_cells)) {
@@ -188,17 +122,9 @@ plot_tata_cluster_graph <- function(
             )
         }
 
-        layout_mat <- cbind(
-            igraph::V(cluster_graph)$x,
-            igraph::V(cluster_graph)$y
+        node_df <- .tata_cluster_abstract_nodes(
+            cluster_graph, graph_vertex_df
         )
-        if (any(!is.finite(layout_mat))) {
-            layout_mat <- igraph::layout_with_fr(cluster_graph)
-        }
-
-        node_df <- graph_vertex_df
-        node_df$x <- layout_mat[, 1]
-        node_df$y <- layout_mat[, 2]
     }
 
     if (any(!is.finite(node_df$x)) || any(!is.finite(node_df$y))) {
@@ -208,172 +134,22 @@ plot_tata_cluster_graph <- function(
         )
     }
 
-    edge_df <- igraph::as_data_frame(cluster_graph, what = "edges")
-    if (nrow(edge_df) > 0L) {
-        from_idx <- match(edge_df$from, node_df$cluster)
-        to_idx <- match(edge_df$to, node_df$cluster)
-        edge_df$x <- node_df$x[from_idx]
-        edge_df$y <- node_df$y[from_idx]
-        edge_df$xend <- node_df$x[to_idx]
-        edge_df$yend <- node_df$y[to_idx]
-    } else {
-        edge_df <- data.frame(
-            from = character(0),
-            to = character(0),
-            weight = numeric(0),
-            ambiguous = logical(0),
-            x = numeric(0),
-            y = numeric(0),
-            xend = numeric(0),
-            yend = numeric(0),
-            stringsAsFactors = FALSE
-        )
-    }
+    edge_df <- .tata_cluster_edge_table(
+        cluster_graph, node_df, edge_width_scale
+    )
 
-    if (!"ambiguous" %in% colnames(edge_df)) {
-        edge_df$ambiguous <- FALSE
-    }
-
-    if (nrow(edge_df) > 0L && max(edge_df$weight, na.rm = TRUE) > 0) {
-        edge_df$plot_width <- 0.5 + edge_width_scale * edge_df$weight /
-            max(edge_df$weight, na.rm = TRUE)
-    } else {
-        edge_df$plot_width <- rep(0.5, nrow(edge_df))
-    }
-
-    if (length(unique(node_df$size)) > 1L) {
-        node_df$plot_size <- 4 + 6 * (node_df$size - min(node_df$size)) /
-            diff(range(node_df$size))
-    } else {
-        node_df$plot_size <- rep(7, nrow(node_df))
-    }
-
-    node_df$cluster <- factor(node_df$cluster, levels = node_df$cluster)
-    cluster_palette <- grDevices::hcl.colors(nrow(node_df), palette = "Dark 3")
-    names(cluster_palette) <- as.character(node_df$cluster)
+    node_style <- .tata_cluster_node_aesthetics(node_df)
+    node_df <- node_style$node_df
+    cluster_palette <- node_style$palette
 
     p <- ggplot2::ggplot()
-
-    if (!is.null(cell_df) && nrow(cell_df) > 0L) {
-        if (!is.null(colour_by) && colour_by == cluster_col) {
-            cell_df$colour_value <- factor(
-                as.character(cell_df$colour_value),
-                levels = levels(node_df$cluster)
-            )
-            p <- p + ggplot2::geom_point(
-                data = cell_df,
-                mapping = ggplot2::aes(
-                    x = Dim1, y = Dim2, colour = colour_value
-                ),
-                size = point_size,
-                alpha = point_alpha
-            ) +
-                ggplot2::scale_colour_manual(
-                    values = cluster_palette, name = colour_by
-                )
-        } else if (!is.null(colour_by) && is.numeric(cell_df$colour_value)) {
-            p <- p + ggplot2::geom_point(
-                data = cell_df,
-                mapping = ggplot2::aes(
-                    x = Dim1, y = Dim2, colour = colour_value
-                ),
-                size = point_size,
-                alpha = point_alpha
-            ) +
-                ggplot2::scale_colour_viridis_c(
-                    option = "plasma", name = colour_by
-                )
-        } else if (!is.null(colour_by) && !is.numeric(cell_df$colour_value)) {
-            p <- p + ggplot2::geom_point(
-                data = cell_df,
-                mapping = ggplot2::aes(
-                    x = Dim1, y = Dim2, colour = colour_value
-                ),
-                size = point_size,
-                alpha = point_alpha
-            )
-        } else {
-            p <- p + ggplot2::geom_point(
-                data = cell_df,
-                mapping = ggplot2::aes(x = Dim1, y = Dim2),
-                colour = "grey80",
-                size = point_size,
-                alpha = point_alpha
-            )
-        }
-    }
-
-    directed_edges <- edge_df[!edge_df$ambiguous, , drop = FALSE]
-    ambiguous_edges <- edge_df[edge_df$ambiguous, , drop = FALSE]
-
-    if (nrow(ambiguous_edges) > 0L) {
-        p <- p + ggplot2::geom_segment(
-            data = ambiguous_edges,
-            mapping = ggplot2::aes(
-                x = x, y = y, xend = xend, yend = yend,
-                linewidth = plot_width
-            ),
-            inherit.aes = FALSE,
-            colour = "grey55",
-            linetype = 2,
-            alpha = 0.8
-        )
-    }
-
-    if (nrow(directed_edges) > 0L) {
-        p <- p + ggplot2::geom_segment(
-            data = directed_edges,
-            mapping = ggplot2::aes(
-                x = x, y = y, xend = xend, yend = yend,
-                linewidth = plot_width
-            ),
-            inherit.aes = FALSE,
-            colour = "black",
-            alpha = 0.85,
-            arrow = grid::arrow(
-                length = grid::unit(arrow_size, "inches"),
-                type = "closed"
-            )
-        )
-    }
-
-    if (identical(node_colour_by, "cluster")) {
-        p <- p + ggplot2::geom_point(
-            data = node_df,
-            mapping = ggplot2::aes(
-                x = x, y = y, size = plot_size, fill = cluster
-            ),
-            inherit.aes = FALSE,
-            shape = 21,
-            colour = "black",
-            stroke = 0.5
-        ) +
-            ggplot2::scale_fill_manual(
-                values = cluster_palette, name = "cluster"
-            )
-    } else {
-        p <- p + ggplot2::geom_point(
-            data = node_df,
-            mapping = ggplot2::aes(
-                x = x, y = y, size = plot_size, fill = median_time
-            ),
-            inherit.aes = FALSE,
-            shape = 21,
-            colour = "black",
-            stroke = 0.5
-        ) +
-            ggplot2::scale_fill_gradientn(
-                colours = c("#2c7bb6", "#abd9e9", "#fdae61", "#d7191c"),
-                name = "median_time"
-            )
-    }
-
-    p <- p + ggplot2::geom_text(
-        data = node_df,
-        mapping = ggplot2::aes(x = x, y = y, label = cluster),
-        inherit.aes = FALSE,
-        size = vertex_label_size,
-        nudge_y = 0.12
+    p <- .tata_add_cluster_cell_layer(
+        p, cell_df, colour_by, cluster_col, cluster_palette,
+        levels(node_df$cluster), point_size, point_alpha
+    )
+    p <- .tata_add_cluster_edge_layers(p, edge_df, arrow_size)
+    p <- .tata_add_cluster_node_layers(
+        p, node_df, cluster_palette, node_colour_by, vertex_label_size
     )
 
     p <- p +
@@ -453,231 +229,18 @@ plot_tata_trajectory_embedding <- function(
         stop("`tata_result$sce` must be a SingleCellExperiment.", call. = FALSE)
     }
 
-    if (!is.null(max_paths)) {
-        max_paths <- as.integer(max_paths)
-        if (length(max_paths) != 1L || is.na(max_paths) || max_paths < 1L) {
-            stop(
-                "`max_paths` must be NULL or a single positive integer.",
-                call. = FALSE
-            )
-        }
-    }
-
-    if (!dimred %in% SingleCellExperiment::reducedDimNames(sce)) {
-        stop(
-            "Reduced dimension `", dimred,
-            "` is not present in `tata_result$sce`.",
-            call. = FALSE
-        )
-    }
+    max_paths <- .tata_trajectory_max_paths(max_paths)
 
     cluster_col <- tata_result$parameters$cluster_col
-    embedding <- as.matrix(SingleCellExperiment::reducedDim(sce, dimred))
-    if (ncol(embedding) < 2L) {
-        stop(
-            "The requested reduced dimension must contain at least two ",
-            "columns.",
-            call. = FALSE
-        )
-    }
-
-    meta <- as.data.frame(SummarizedExperiment::colData(sce))
-    meta$Dim1 <- embedding[, 1]
-    meta$Dim2 <- embedding[, 2]
-    meta$cluster_plot <- meta[[cluster_col]]
-
-    cluster_centroids <- stats::aggregate(
-        meta[, c("Dim1", "Dim2")],
-        by = list(cluster = as.character(meta$cluster_plot)),
-        FUN = stats::median
+    meta <- .tata_trajectory_meta(sce, dimred, cluster_col)
+    cluster_centroids <- .tata_trajectory_centroids(
+        meta, tata_result$cluster_pseudotime
     )
 
-    cluster_pt <- tata_result$cluster_pseudotime
-    if (!is.null(cluster_pt) && nrow(cluster_pt) > 0L) {
-        cluster_centroids <- merge(
-            cluster_centroids, cluster_pt,
-            by = "cluster", all.x = TRUE, sort = FALSE
-        )
-    } else {
-        cluster_centroids$pseudotime <- NA_real_
-        cluster_centroids$scaled_pseudotime <- NA_real_
-        cluster_centroids$reachable <- TRUE
-        cluster_centroids$is_root <- FALSE
-    }
-
-    cluster_graph <- tata_result$cluster_graph
-    reachable_clusters <- cluster_centroids$cluster[
-        (cluster_centroids$reachable %in% TRUE) |
-            is.na(cluster_centroids$reachable)
-    ]
-    reachable_clusters <- intersect(
-        reachable_clusters, igraph::V(cluster_graph)$name
+    curve_df <- .tata_trajectory_curve_table(
+        tata_result, cluster_centroids, max_paths, smooth_paths,
+        n_curve_points
     )
-
-    if (!any(cluster_centroids$is_root, na.rm = TRUE)) {
-        root_cluster <- cluster_centroids$cluster[
-            which.min(cluster_centroids$pseudotime)
-        ]
-    } else {
-        root_cluster <- cluster_centroids$cluster[
-            which(cluster_centroids$is_root)[1]
-        ]
-    }
-
-    subgraph <- igraph::induced_subgraph(
-        cluster_graph,
-        vids = reachable_clusters
-    )
-    undirected_subgraph <- igraph::as_undirected(subgraph, mode = "collapse")
-
-    edge_table <- tata_result$cluster_edge_table
-    directed_edges <- edge_table[
-        edge_table$kept & edge_table$direction != "ambiguous",
-        c("from", "to"),
-        drop = FALSE
-    ]
-
-    cluster_pt_lookup <- stats::setNames(
-        cluster_centroids$pseudotime,
-        cluster_centroids$cluster
-    )
-
-    reachable_order <- cluster_centroids$cluster[
-        order(cluster_centroids$pseudotime, decreasing = TRUE, na.last = NA)
-    ]
-    reachable_order <- intersect(reachable_order, reachable_clusters)
-
-    terminal_clusters <- reachable_order[vapply(
-        reachable_order,
-        FUN.VALUE = logical(1),
-        FUN = function(cluster_name) {
-            if (identical(cluster_name, root_cluster)) {
-                return(FALSE)
-            }
-
-            outgoing <- directed_edges$to[directed_edges$from == cluster_name]
-            outgoing <- intersect(outgoing, reachable_clusters)
-            if (length(outgoing) == 0L) {
-                return(TRUE)
-            }
-
-            later_outgoing <- outgoing[
-                cluster_pt_lookup[outgoing] > cluster_pt_lookup[cluster_name]
-            ]
-            length(later_outgoing) == 0L
-        }
-    )]
-
-    if (length(terminal_clusters) == 0L) {
-        terminal_clusters <- utils::head(
-            setdiff(reachable_order, root_cluster), 3
-        )
-    }
-
-    path_info_list <- vector("list", length(terminal_clusters))
-    for (i in seq_along(terminal_clusters)) {
-        terminal_cluster <- terminal_clusters[i]
-        path_vertices <- suppressWarnings(
-            igraph::shortest_paths(
-                subgraph,
-                from = root_cluster,
-                to = terminal_cluster,
-                mode = "out",
-                weights = 1 / pmax(igraph::E(subgraph)$weight, 1e-8)
-            )$vpath[[1]]
-        )
-
-        if (length(path_vertices) == 0L) {
-            path_vertices <- suppressWarnings(
-                igraph::shortest_paths(
-                    undirected_subgraph,
-                    from = root_cluster,
-                    to = terminal_cluster,
-                    mode = "all",
-                    weights = 1 / pmax(
-                        igraph::E(undirected_subgraph)$weight, 1e-8
-                    )
-                )$vpath[[1]]
-            )
-        }
-
-        path_clusters <- igraph::V(subgraph)$name[as.integer(path_vertices)]
-        path_df <- cluster_centroids[
-            match(path_clusters, cluster_centroids$cluster),
-            c("cluster", "Dim1", "Dim2", "scaled_pseudotime"),
-            drop = FALSE
-        ]
-        path_df <- path_df[
-            stats::complete.cases(path_df[, c("Dim1", "Dim2")]), ,
-            drop = FALSE
-        ]
-        if (nrow(path_df) < 2L) {
-            next
-        }
-
-        terminal_pt <- cluster_pt_lookup[terminal_cluster]
-        if (is.na(terminal_pt)) {
-            terminal_pt <- nrow(path_df)
-        }
-
-        path_info_list[[i]] <- list(
-            terminal_cluster = terminal_cluster,
-            terminal_pseudotime = terminal_pt,
-            path_clusters = path_clusters,
-            path_df = path_df
-        )
-    }
-
-    path_info_list <- Filter(Negate(is.null), path_info_list)
-
-    if (!is.null(max_paths) && length(path_info_list) > max_paths) {
-        path_rank <- order(
-            vapply(
-                path_info_list, function(x) x$terminal_pseudotime,
-                numeric(1)
-            ),
-            decreasing = TRUE
-        )
-        path_info_list <- path_info_list[path_rank[seq_len(max_paths)]]
-    }
-
-    curve_list <- vector("list", length(path_info_list))
-    for (i in seq_along(path_info_list)) {
-        path_df <- path_info_list[[i]]$path_df
-
-        if (isTRUE(smooth_paths) && nrow(path_df) >= 4L) {
-            spline_index <- seq_len(nrow(path_df))
-            x_spline <- stats::smooth.spline(
-                spline_index, path_df$Dim1, spar = 0.5
-            )
-            y_spline <- stats::smooth.spline(
-                spline_index, path_df$Dim2, spar = 0.5
-            )
-            new_index <- seq(
-                min(spline_index), max(spline_index),
-                length.out = n_curve_points
-            )
-            curve_df <- data.frame(
-                path_id = paste0("path_", i),
-                terminal_cluster = path_info_list[[i]]$terminal_cluster,
-                Dim1 = stats::predict(x_spline, x = new_index)$y,
-                Dim2 = stats::predict(y_spline, x = new_index)$y,
-                stringsAsFactors = FALSE
-            )
-        } else {
-            curve_df <- data.frame(
-                path_id = paste0("path_", i),
-                terminal_cluster = path_info_list[[i]]$terminal_cluster,
-                Dim1 = path_df$Dim1,
-                Dim2 = path_df$Dim2,
-                stringsAsFactors = FALSE
-            )
-        }
-
-        curve_list[[i]] <- curve_df
-    }
-
-    curve_df <- do.call(rbind, Filter(Negate(is.null), curve_list))
 
     if (!is.null(colour_by) && colour_by %in% colnames(meta)) {
         meta$colour_value <- meta[[colour_by]]
@@ -918,21 +481,9 @@ plot_tata_time_calibration <- function(
         )
     }
 
-    plot_df <- data.frame(
-        timepoint = .coerce_time_to_numeric(meta[[time_col]]),
-        pseudotime = as.numeric(meta[[pseudotime_col]]),
-        stringsAsFactors = FALSE
+    plot_df <- .tata_time_calibration_table(
+        meta, time_col, pseudotime_col, branch_col
     )
-    if (!is.null(branch_col) && branch_col %in% colnames(meta)) {
-        plot_df$branch <- as.character(meta[[branch_col]])
-    } else {
-        plot_df$branch <- "all"
-    }
-
-    plot_df <- plot_df[
-        is.finite(plot_df$timepoint) & is.finite(plot_df$pseudotime), ,
-        drop = FALSE
-    ]
 
     if (summary == "boxplot") {
         return(
@@ -953,19 +504,7 @@ plot_tata_time_calibration <- function(
         )
     }
 
-    summary_df <- stats::aggregate(
-        plot_df$pseudotime,
-        by = list(timepoint = plot_df$timepoint, branch = plot_df$branch),
-        FUN = function(x) {
-            c(
-                median = stats::median(x),
-                q25 = stats::quantile(x, 0.25),
-                q75 = stats::quantile(x, 0.75)
-            )
-        }
-    )
-    summary_df <- do.call(data.frame, summary_df)
-    colnames(summary_df) <- c("timepoint", "branch", "median", "q25", "q75")
+    summary_df <- .tata_time_calibration_summary(plot_df)
 
     ggplot2::ggplot(
         summary_df,
@@ -1585,4 +1124,757 @@ plot_tata_results <- function(
             n_cells = n_probability_cells
         )
     )
+}
+
+
+#' Resolve the embedding context for the TATA cluster-graph layout
+#'
+#' Validates the reduced dimension and cluster column, then returns the
+#' per-cell metadata used to place cluster nodes on the embedding.
+#'
+#' @keywords internal
+#' @noRd
+.tata_cluster_embedding_context <- function(
+    tata_result, dimred, cluster_col
+) {
+    sce <- tata_result$sce
+    if (!methods::is(sce, "SingleCellExperiment")) {
+        stop(
+            "`layout_mode = \"embedding\"` requires `tata_result$sce` to ",
+            "be a SingleCellExperiment.",
+            call. = FALSE
+        )
+    }
+
+    if (is.null(dimred)) {
+        if ("UMAP" %in% SingleCellExperiment::reducedDimNames(sce)) {
+            dimred <- "UMAP"
+        } else {
+            stop(
+                "Please supply `dimred` for `layout_mode = \"embedding\"`.",
+                call. = FALSE
+            )
+        }
+    }
+
+    if (!dimred %in% SingleCellExperiment::reducedDimNames(sce)) {
+        stop(
+            "Reduced dimension `", dimred,
+            "` is not present in `tata_result$sce`.",
+            call. = FALSE
+        )
+    }
+
+    if (is.null(cluster_col)) {
+        cluster_col <- tata_result$parameters$cluster_col
+    }
+
+    if (is.null(cluster_col) || !cluster_col %in%
+            colnames(SummarizedExperiment::colData(sce))) {
+        stop(
+            "A valid `cluster_col` is required for `layout_mode = ",
+            "\"embedding\"`.",
+            call. = FALSE
+        )
+    }
+
+    embedding <- as.matrix(SingleCellExperiment::reducedDim(sce, dimred))
+    if (ncol(embedding) < 2L) {
+        stop(
+            "The requested reduced dimension must contain at least two ",
+            "columns.",
+            call. = FALSE
+        )
+    }
+
+    meta <- as.data.frame(SummarizedExperiment::colData(sce))
+    meta$cluster_plot <- as.character(meta[[cluster_col]])
+    meta$Dim1 <- embedding[, 1]
+    meta$Dim2 <- embedding[, 2]
+
+    list(meta = meta, dimred = dimred, cluster_col = cluster_col)
+}
+
+
+#' Place cluster nodes at their embedding centroids
+#'
+#' @keywords internal
+#' @noRd
+.tata_cluster_embedding_nodes <- function(meta, graph_vertex_df) {
+    node_df <- stats::aggregate(
+        meta[, c("Dim1", "Dim2")],
+        by = list(cluster = meta$cluster_plot),
+        FUN = stats::median
+    )
+    names(node_df)[2:3] <- c("x", "y")
+    node_df <- merge(
+        graph_vertex_df, node_df,
+        by = "cluster", all.x = TRUE, sort = FALSE
+    )
+    node_df[
+        match(graph_vertex_df$cluster, node_df$cluster), ,
+        drop = FALSE
+    ]
+}
+
+
+#' Build the background cell table for the TATA cluster graph
+#'
+#' @keywords internal
+#' @noRd
+.tata_cluster_cell_table <- function(meta, colour_by) {
+    cell_df <- meta[, c("Dim1", "Dim2", "cluster_plot"), drop = FALSE]
+    if (!is.null(colour_by) && colour_by %in% colnames(meta)) {
+        cell_df$colour_value <- meta[[colour_by]]
+    } else {
+        cell_df$colour_value <- "cells"
+    }
+    cell_df
+}
+
+
+#' Place cluster nodes using the stored abstract graph coordinates
+#'
+#' Falls back to a force-directed layout when the stored coordinates are
+#' missing or non-finite.
+#'
+#' @keywords internal
+#' @noRd
+.tata_cluster_abstract_nodes <- function(cluster_graph, graph_vertex_df) {
+    layout_mat <- cbind(
+        igraph::V(cluster_graph)$x,
+        igraph::V(cluster_graph)$y
+    )
+    if (any(!is.finite(layout_mat))) {
+        layout_mat <- igraph::layout_with_fr(cluster_graph)
+    }
+
+    node_df <- graph_vertex_df
+    node_df$x <- layout_mat[, 1]
+    node_df$y <- layout_mat[, 2]
+    node_df
+}
+
+
+#' Assemble the drawable edge table for the TATA cluster graph
+#'
+#' Attaches endpoint coordinates and the scaled plotting width to each edge.
+#'
+#' @keywords internal
+#' @noRd
+.tata_cluster_edge_table <- function(
+    cluster_graph, node_df, edge_width_scale
+) {
+    edge_df <- igraph::as_data_frame(cluster_graph, what = "edges")
+    if (nrow(edge_df) > 0L) {
+        from_idx <- match(edge_df$from, node_df$cluster)
+        to_idx <- match(edge_df$to, node_df$cluster)
+        edge_df$x <- node_df$x[from_idx]
+        edge_df$y <- node_df$y[from_idx]
+        edge_df$xend <- node_df$x[to_idx]
+        edge_df$yend <- node_df$y[to_idx]
+    } else {
+        edge_df <- data.frame(
+            from = character(0),
+            to = character(0),
+            weight = numeric(0),
+            ambiguous = logical(0),
+            x = numeric(0),
+            y = numeric(0),
+            xend = numeric(0),
+            yend = numeric(0),
+            stringsAsFactors = FALSE
+        )
+    }
+
+    if (!"ambiguous" %in% colnames(edge_df)) {
+        edge_df$ambiguous <- FALSE
+    }
+
+    if (nrow(edge_df) > 0L && max(edge_df$weight, na.rm = TRUE) > 0) {
+        edge_df$plot_width <- 0.5 + edge_width_scale * edge_df$weight /
+            max(edge_df$weight, na.rm = TRUE)
+    } else {
+        edge_df$plot_width <- rep(0.5, nrow(edge_df))
+    }
+
+    edge_df
+}
+
+
+#' Derive node sizes and the cluster colour palette
+#'
+#' @keywords internal
+#' @noRd
+.tata_cluster_node_aesthetics <- function(node_df) {
+    if (length(unique(node_df$size)) > 1L) {
+        node_df$plot_size <- 4 + 6 * (node_df$size - min(node_df$size)) /
+            diff(range(node_df$size))
+    } else {
+        node_df$plot_size <- rep(7, nrow(node_df))
+    }
+
+    node_df$cluster <- factor(node_df$cluster, levels = node_df$cluster)
+    cluster_palette <- grDevices::hcl.colors(nrow(node_df), palette = "Dark 3")
+    names(cluster_palette) <- as.character(node_df$cluster)
+
+    list(node_df = node_df, palette = cluster_palette)
+}
+
+
+#' Add the background cell layer to the TATA cluster-graph plot
+#'
+#' @keywords internal
+#' @noRd
+.tata_add_cluster_cell_layer <- function(
+    p, cell_df, colour_by, cluster_col, cluster_palette, cluster_levels,
+    point_size, point_alpha
+) {
+    if (is.null(cell_df) || nrow(cell_df) == 0L) {
+        return(p)
+    }
+
+    if (!is.null(colour_by) && colour_by == cluster_col) {
+        cell_df$colour_value <- factor(
+            as.character(cell_df$colour_value),
+            levels = cluster_levels
+        )
+        p <- p + ggplot2::geom_point(
+            data = cell_df,
+            mapping = ggplot2::aes(
+                x = Dim1, y = Dim2, colour = colour_value
+            ),
+            size = point_size,
+            alpha = point_alpha
+        ) +
+            ggplot2::scale_colour_manual(
+                values = cluster_palette, name = colour_by
+            )
+    } else if (!is.null(colour_by) && is.numeric(cell_df$colour_value)) {
+        p <- p + ggplot2::geom_point(
+            data = cell_df,
+            mapping = ggplot2::aes(
+                x = Dim1, y = Dim2, colour = colour_value
+            ),
+            size = point_size,
+            alpha = point_alpha
+        ) +
+            ggplot2::scale_colour_viridis_c(
+                option = "plasma", name = colour_by
+            )
+    } else if (!is.null(colour_by) && !is.numeric(cell_df$colour_value)) {
+        p <- p + ggplot2::geom_point(
+            data = cell_df,
+            mapping = ggplot2::aes(
+                x = Dim1, y = Dim2, colour = colour_value
+            ),
+            size = point_size,
+            alpha = point_alpha
+        )
+    } else {
+        p <- p + ggplot2::geom_point(
+            data = cell_df,
+            mapping = ggplot2::aes(x = Dim1, y = Dim2),
+            colour = "grey80",
+            size = point_size,
+            alpha = point_alpha
+        )
+    }
+
+    p
+}
+
+
+#' Add the ambiguous and directed edge layers to the cluster-graph plot
+#'
+#' @keywords internal
+#' @noRd
+.tata_add_cluster_edge_layers <- function(p, edge_df, arrow_size) {
+    directed_edges <- edge_df[!edge_df$ambiguous, , drop = FALSE]
+    ambiguous_edges <- edge_df[edge_df$ambiguous, , drop = FALSE]
+
+    if (nrow(ambiguous_edges) > 0L) {
+        p <- p + ggplot2::geom_segment(
+            data = ambiguous_edges,
+            mapping = ggplot2::aes(
+                x = x, y = y, xend = xend, yend = yend,
+                linewidth = plot_width
+            ),
+            inherit.aes = FALSE,
+            colour = "grey55",
+            linetype = 2,
+            alpha = 0.8
+        )
+    }
+
+    if (nrow(directed_edges) > 0L) {
+        p <- p + ggplot2::geom_segment(
+            data = directed_edges,
+            mapping = ggplot2::aes(
+                x = x, y = y, xend = xend, yend = yend,
+                linewidth = plot_width
+            ),
+            inherit.aes = FALSE,
+            colour = "black",
+            alpha = 0.85,
+            arrow = grid::arrow(
+                length = grid::unit(arrow_size, "inches"),
+                type = "closed"
+            )
+        )
+    }
+
+    p
+}
+
+
+#' Add the cluster node and label layers to the cluster-graph plot
+#'
+#' @keywords internal
+#' @noRd
+.tata_add_cluster_node_layers <- function(
+    p, node_df, cluster_palette, node_colour_by, vertex_label_size
+) {
+    if (identical(node_colour_by, "cluster")) {
+        p <- p + ggplot2::geom_point(
+            data = node_df,
+            mapping = ggplot2::aes(
+                x = x, y = y, size = plot_size, fill = cluster
+            ),
+            inherit.aes = FALSE,
+            shape = 21,
+            colour = "black",
+            stroke = 0.5
+        ) +
+            ggplot2::scale_fill_manual(
+                values = cluster_palette, name = "cluster"
+            )
+    } else {
+        p <- p + ggplot2::geom_point(
+            data = node_df,
+            mapping = ggplot2::aes(
+                x = x, y = y, size = plot_size, fill = median_time
+            ),
+            inherit.aes = FALSE,
+            shape = 21,
+            colour = "black",
+            stroke = 0.5
+        ) +
+            ggplot2::scale_fill_gradientn(
+                colours = c("#2c7bb6", "#abd9e9", "#fdae61", "#d7191c"),
+                name = "median_time"
+            )
+    }
+
+    p + ggplot2::geom_text(
+        data = node_df,
+        mapping = ggplot2::aes(x = x, y = y, label = cluster),
+        inherit.aes = FALSE,
+        size = vertex_label_size,
+        nudge_y = 0.12
+    )
+}
+
+
+#' Validate the `max_paths` argument of the trajectory embedding plot
+#'
+#' @keywords internal
+#' @noRd
+.tata_trajectory_max_paths <- function(max_paths) {
+    if (is.null(max_paths)) {
+        return(NULL)
+    }
+
+    max_paths <- as.integer(max_paths)
+    if (length(max_paths) != 1L || is.na(max_paths) || max_paths < 1L) {
+        stop(
+            "`max_paths` must be NULL or a single positive integer.",
+            call. = FALSE
+        )
+    }
+
+    max_paths
+}
+
+
+#' Build the per-cell metadata used by the trajectory embedding plot
+#'
+#' @keywords internal
+#' @noRd
+.tata_trajectory_meta <- function(sce, dimred, cluster_col) {
+    if (!dimred %in% SingleCellExperiment::reducedDimNames(sce)) {
+        stop(
+            "Reduced dimension `", dimred,
+            "` is not present in `tata_result$sce`.",
+            call. = FALSE
+        )
+    }
+
+    embedding <- as.matrix(SingleCellExperiment::reducedDim(sce, dimred))
+    if (ncol(embedding) < 2L) {
+        stop(
+            "The requested reduced dimension must contain at least two ",
+            "columns.",
+            call. = FALSE
+        )
+    }
+
+    meta <- as.data.frame(SummarizedExperiment::colData(sce))
+    meta$Dim1 <- embedding[, 1]
+    meta$Dim2 <- embedding[, 2]
+    meta$cluster_plot <- meta[[cluster_col]]
+    meta
+}
+
+
+#' Compute cluster centroids joined to the cluster pseudotime table
+#'
+#' @keywords internal
+#' @noRd
+.tata_trajectory_centroids <- function(meta, cluster_pt) {
+    cluster_centroids <- stats::aggregate(
+        meta[, c("Dim1", "Dim2")],
+        by = list(cluster = as.character(meta$cluster_plot)),
+        FUN = stats::median
+    )
+
+    if (!is.null(cluster_pt) && nrow(cluster_pt) > 0L) {
+        cluster_centroids <- merge(
+            cluster_centroids, cluster_pt,
+            by = "cluster", all.x = TRUE, sort = FALSE
+        )
+    } else {
+        cluster_centroids$pseudotime <- NA_real_
+        cluster_centroids$scaled_pseudotime <- NA_real_
+        cluster_centroids$reachable <- TRUE
+        cluster_centroids$is_root <- FALSE
+    }
+
+    cluster_centroids
+}
+
+
+#' Identify the reachable clusters present in the cluster graph
+#'
+#' @keywords internal
+#' @noRd
+.tata_trajectory_reachable_clusters <- function(
+    cluster_centroids, cluster_graph
+) {
+    reachable_clusters <- cluster_centroids$cluster[
+        (cluster_centroids$reachable %in% TRUE) |
+            is.na(cluster_centroids$reachable)
+    ]
+    intersect(reachable_clusters, igraph::V(cluster_graph)$name)
+}
+
+
+#' Choose the root cluster used to seed the trajectory paths
+#'
+#' @keywords internal
+#' @noRd
+.tata_trajectory_root_cluster <- function(cluster_centroids) {
+    if (!any(cluster_centroids$is_root, na.rm = TRUE)) {
+        return(cluster_centroids$cluster[
+            which.min(cluster_centroids$pseudotime)
+        ])
+    }
+
+    cluster_centroids$cluster[which(cluster_centroids$is_root)[1]]
+}
+
+
+#' Identify the terminal clusters of the TATA trajectory
+#'
+#' A reachable cluster is terminal when it is not the root and has no
+#' retained outgoing edge to a later-pseudotime cluster.
+#'
+#' @keywords internal
+#' @noRd
+.tata_trajectory_terminal_clusters <- function(
+    cluster_centroids, directed_edges, reachable_clusters, root_cluster,
+    cluster_pt_lookup
+) {
+    reachable_order <- cluster_centroids$cluster[
+        order(cluster_centroids$pseudotime, decreasing = TRUE, na.last = NA)
+    ]
+    reachable_order <- intersect(reachable_order, reachable_clusters)
+
+    terminal_clusters <- reachable_order[vapply(
+        reachable_order,
+        FUN.VALUE = logical(1),
+        FUN = function(cluster_name) {
+            if (identical(cluster_name, root_cluster)) {
+                return(FALSE)
+            }
+
+            outgoing <- directed_edges$to[directed_edges$from == cluster_name]
+            outgoing <- intersect(outgoing, reachable_clusters)
+            if (length(outgoing) == 0L) {
+                return(TRUE)
+            }
+
+            later_outgoing <- outgoing[
+                cluster_pt_lookup[outgoing] > cluster_pt_lookup[cluster_name]
+            ]
+            length(later_outgoing) == 0L
+        }
+    )]
+
+    if (length(terminal_clusters) == 0L) {
+        terminal_clusters <- utils::head(
+            setdiff(reachable_order, root_cluster), 3
+        )
+    }
+
+    terminal_clusters
+}
+
+
+#' Derive the drawable trajectory curves from the TATA cluster graph
+#'
+#' Restricts the cluster graph to the reachable clusters, finds the
+#' root-to-terminal routes and converts the retained routes into curves.
+#'
+#' @keywords internal
+#' @noRd
+.tata_trajectory_curve_table <- function(
+    tata_result, cluster_centroids, max_paths, smooth_paths, n_curve_points
+) {
+    cluster_graph <- tata_result$cluster_graph
+    reachable_clusters <- .tata_trajectory_reachable_clusters(
+        cluster_centroids, cluster_graph
+    )
+    root_cluster <- .tata_trajectory_root_cluster(cluster_centroids)
+
+    subgraph <- igraph::induced_subgraph(
+        cluster_graph,
+        vids = reachable_clusters
+    )
+    undirected_subgraph <- igraph::as_undirected(subgraph, mode = "collapse")
+
+    edge_table <- tata_result$cluster_edge_table
+    directed_edges <- edge_table[
+        edge_table$kept & edge_table$direction != "ambiguous",
+        c("from", "to"),
+        drop = FALSE
+    ]
+
+    cluster_pt_lookup <- stats::setNames(
+        cluster_centroids$pseudotime,
+        cluster_centroids$cluster
+    )
+
+    terminal_clusters <- .tata_trajectory_terminal_clusters(
+        cluster_centroids, directed_edges, reachable_clusters,
+        root_cluster, cluster_pt_lookup
+    )
+
+    path_info_list <- .tata_trajectory_paths(
+        subgraph, undirected_subgraph, terminal_clusters, root_cluster,
+        cluster_centroids, cluster_pt_lookup
+    )
+    path_info_list <- .tata_trajectory_select_paths(
+        path_info_list, max_paths
+    )
+
+    .tata_trajectory_curves(path_info_list, smooth_paths, n_curve_points)
+}
+
+
+#' Find the vertices of one root-to-terminal route
+#'
+#' Uses the directed subgraph first and falls back to its undirected
+#' collapse when no directed route exists.
+#'
+#' @keywords internal
+#' @noRd
+.tata_trajectory_path_vertices <- function(
+    subgraph, undirected_subgraph, root_cluster, terminal_cluster
+) {
+    path_vertices <- suppressWarnings(
+        igraph::shortest_paths(
+            subgraph,
+            from = root_cluster,
+            to = terminal_cluster,
+            mode = "out",
+            weights = 1 / pmax(igraph::E(subgraph)$weight, 1e-8)
+        )$vpath[[1]]
+    )
+
+    if (length(path_vertices) == 0L) {
+        path_vertices <- suppressWarnings(
+            igraph::shortest_paths(
+                undirected_subgraph,
+                from = root_cluster,
+                to = terminal_cluster,
+                mode = "all",
+                weights = 1 / pmax(
+                    igraph::E(undirected_subgraph)$weight, 1e-8
+                )
+            )$vpath[[1]]
+        )
+    }
+
+    path_vertices
+}
+
+
+#' Extract the root-to-terminal trajectory paths
+#'
+#' @keywords internal
+#' @noRd
+.tata_trajectory_paths <- function(
+    subgraph, undirected_subgraph, terminal_clusters, root_cluster,
+    cluster_centroids, cluster_pt_lookup
+) {
+    path_info_list <- vector("list", length(terminal_clusters))
+    for (i in seq_along(terminal_clusters)) {
+        terminal_cluster <- terminal_clusters[i]
+        path_vertices <- .tata_trajectory_path_vertices(
+            subgraph, undirected_subgraph, root_cluster, terminal_cluster
+        )
+
+        path_clusters <- igraph::V(subgraph)$name[as.integer(path_vertices)]
+        path_df <- cluster_centroids[
+            match(path_clusters, cluster_centroids$cluster),
+            c("cluster", "Dim1", "Dim2", "scaled_pseudotime"),
+            drop = FALSE
+        ]
+        path_df <- path_df[
+            stats::complete.cases(path_df[, c("Dim1", "Dim2")]), ,
+            drop = FALSE
+        ]
+        if (nrow(path_df) < 2L) {
+            next
+        }
+
+        terminal_pt <- cluster_pt_lookup[terminal_cluster]
+        if (is.na(terminal_pt)) {
+            terminal_pt <- nrow(path_df)
+        }
+
+        path_info_list[[i]] <- list(
+            terminal_cluster = terminal_cluster,
+            terminal_pseudotime = terminal_pt,
+            path_clusters = path_clusters,
+            path_df = path_df
+        )
+    }
+
+    Filter(Negate(is.null), path_info_list)
+}
+
+
+#' Keep the `max_paths` latest-terminating trajectory paths
+#'
+#' @keywords internal
+#' @noRd
+.tata_trajectory_select_paths <- function(path_info_list, max_paths) {
+    if (is.null(max_paths) || length(path_info_list) <= max_paths) {
+        return(path_info_list)
+    }
+
+    path_rank <- order(
+        vapply(
+            path_info_list, function(x) x$terminal_pseudotime,
+            numeric(1)
+        ),
+        decreasing = TRUE
+    )
+    path_info_list[path_rank[seq_len(max_paths)]]
+}
+
+
+#' Turn trajectory paths into drawable curves
+#'
+#' @keywords internal
+#' @noRd
+.tata_trajectory_curves <- function(
+    path_info_list, smooth_paths, n_curve_points
+) {
+    curve_list <- vector("list", length(path_info_list))
+    for (i in seq_along(path_info_list)) {
+        path_df <- path_info_list[[i]]$path_df
+
+        if (isTRUE(smooth_paths) && nrow(path_df) >= 4L) {
+            spline_index <- seq_len(nrow(path_df))
+            x_spline <- stats::smooth.spline(
+                spline_index, path_df$Dim1, spar = 0.5
+            )
+            y_spline <- stats::smooth.spline(
+                spline_index, path_df$Dim2, spar = 0.5
+            )
+            new_index <- seq(
+                min(spline_index), max(spline_index),
+                length.out = n_curve_points
+            )
+            curve_df <- data.frame(
+                path_id = paste0("path_", i),
+                terminal_cluster = path_info_list[[i]]$terminal_cluster,
+                Dim1 = stats::predict(x_spline, x = new_index)$y,
+                Dim2 = stats::predict(y_spline, x = new_index)$y,
+                stringsAsFactors = FALSE
+            )
+        } else {
+            curve_df <- data.frame(
+                path_id = paste0("path_", i),
+                terminal_cluster = path_info_list[[i]]$terminal_cluster,
+                Dim1 = path_df$Dim1,
+                Dim2 = path_df$Dim2,
+                stringsAsFactors = FALSE
+            )
+        }
+
+        curve_list[[i]] <- curve_df
+    }
+
+    do.call(rbind, Filter(Negate(is.null), curve_list))
+}
+
+
+#' Assemble the time-calibration table of paired time and pseudotime
+#'
+#' @keywords internal
+#' @noRd
+.tata_time_calibration_table <- function(
+    meta, time_col, pseudotime_col, branch_col
+) {
+    plot_df <- data.frame(
+        timepoint = .coerce_time_to_numeric(meta[[time_col]]),
+        pseudotime = as.numeric(meta[[pseudotime_col]]),
+        stringsAsFactors = FALSE
+    )
+    if (!is.null(branch_col) && branch_col %in% colnames(meta)) {
+        plot_df$branch <- as.character(meta[[branch_col]])
+    } else {
+        plot_df$branch <- "all"
+    }
+
+    plot_df[
+        is.finite(plot_df$timepoint) & is.finite(plot_df$pseudotime), ,
+        drop = FALSE
+    ]
+}
+
+
+#' Summarise pseudotime by timepoint and branch as median with IQR
+#'
+#' @keywords internal
+#' @noRd
+.tata_time_calibration_summary <- function(plot_df) {
+    summary_df <- stats::aggregate(
+        plot_df$pseudotime,
+        by = list(timepoint = plot_df$timepoint, branch = plot_df$branch),
+        FUN = function(x) {
+            c(
+                median = stats::median(x),
+                q25 = stats::quantile(x, 0.25),
+                q75 = stats::quantile(x, 0.75)
+            )
+        }
+    )
+    summary_df <- do.call(data.frame, summary_df)
+    colnames(summary_df) <- c("timepoint", "branch", "median", "q25", "q75")
+    summary_df
 }

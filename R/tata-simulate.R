@@ -68,283 +68,52 @@ simulate_tata_spiral_sce <- function(
         )
     }
 
-    branch_label <- sample(
-        x = c("spiral", "tail_up", "tail_down"),
-        size = n_cells,
-        replace = TRUE,
-        prob = c(0.72, 0.14, 0.14)
-    )
+    walk <- .tata_spiral_progress(n_cells)
+    geom <- .tata_spiral_coordinates(walk$branch_label, walk$progress)
+    labelled <- .tata_spiral_metadata(geom, n_cells)
+    meta <- labelled$meta
+    sig <- .tata_spiral_signals(geom, labelled$condition)
+    modules <- .tata_spiral_modules(n_features)
+    loads <- modules$loads
 
-    progress <- numeric(n_cells)
-    progress[branch_label == "spiral"] <- stats::rbeta(
-        sum(branch_label == "spiral"),
-        shape1 = 1.3,
-        shape2 = 1.5
-    ) * 0.82
-    progress[branch_label == "tail_up"] <- 0.82 + stats::rbeta(
-        sum(branch_label == "tail_up"),
-        shape1 = 1.2,
-        shape2 = 1.1
-    ) * 0.18
-    progress[branch_label == "tail_down"] <- 0.82 + stats::rbeta(
-        sum(branch_label == "tail_down"),
-        shape1 = 1.2,
-        shape2 = 1.1
-    ) * 0.18
-
-    angle <- 1.35 * pi + 3.7 * pi * pmin(progress, 0.82) / 0.82
-    radius <- 1.2 + 9.2 * pmin(progress, 0.82) / 0.82
-
-    umap1 <- radius * cos(angle)
-    umap2 <- radius * sin(angle)
-
-    end_angle <- 1.35 * pi + 3.7 * pi
-    end_radius <- 1.2 + 9.2
-    end_x <- end_radius * cos(end_angle)
-    end_y <- end_radius * sin(end_angle)
-
-    tail_progress <- pmax((progress - 0.82) / 0.18, 0)
-    up_idx <- branch_label == "tail_up"
-    down_idx <- branch_label == "tail_down"
-
-    if (any(up_idx)) {
-        umap1[up_idx] <- end_x + 5.6 * tail_progress[up_idx] +
-            stats::rnorm(sum(up_idx), sd = 0.40)
-        umap2[up_idx] <- end_y + 0.8 + 7.5 * tail_progress[up_idx] +
-            stats::rnorm(sum(up_idx), sd = 0.42)
-    }
-
-    if (any(down_idx)) {
-        umap1[down_idx] <- end_x + 5.2 * tail_progress[down_idx] +
-            stats::rnorm(sum(down_idx), sd = 0.42)
-        umap2[down_idx] <- end_y - 0.8 - 7.2 * tail_progress[down_idx] +
-            stats::rnorm(sum(down_idx), sd = 0.42)
-    }
-
-    spiral_noise <- 0.25 + 0.15 * (1 - pmin(progress, 0.82) / 0.82)
-    spiral_idx <- branch_label == "spiral"
-    umap1[spiral_idx] <- umap1[spiral_idx] +
-        stats::rnorm(sum(spiral_idx), sd = spiral_noise[spiral_idx])
-    umap2[spiral_idx] <- umap2[spiral_idx] +
-        stats::rnorm(sum(spiral_idx), sd = spiral_noise[spiral_idx])
-
-    timepoint <- cut(
-        progress,
-        breaks = c(-Inf, 0.16, 0.34, 0.54, 0.74, Inf),
-        labels = c(0, 1, 2, 3, 4),
-        right = TRUE
-    )
-    timepoint <- as.integer(as.character(timepoint))
-
-    condition <- ifelse(
-        branch_label == "tail_down",
-        ifelse(stats::runif(n_cells) < 0.85, "drug", "control"),
-        ifelse(
-            branch_label == "tail_up",
-            ifelse(stats::runif(n_cells) < 0.80, "control", "drug"),
-            ifelse(stats::runif(n_cells) < 0.55, "control", "drug")
-        )
-    )
-
-    state_band <- cut(
-        progress,
-        breaks = c(-Inf, 0.12, 0.28, 0.46, 0.66, 0.82, 0.90, Inf),
-        labels = c(
-            "core", "inner", "mid", "outer", "pre_tail", "tail_early",
-            "tail_late"
-        ),
-        right = TRUE
-    )
-
-    simulated_state <- ifelse(
-        branch_label == "spiral",
-        paste0("spiral_", state_band),
-        ifelse(
-            branch_label == "tail_up",
-            paste0("tail_up_", state_band),
-            paste0("tail_down_", state_band)
-        )
-    )
-
-    cell_id <- paste0("bacterium_", seq_len(n_cells))
-
-    meta <- data.frame(
-        cell_id = cell_id,
-        timepoint = timepoint,
-        condition = factor(condition, levels = c("control", "drug")),
-        simulated_state = factor(simulated_state),
-        simulated_branch = factor(
-            branch_label,
-            levels = c("spiral", "tail_up", "tail_down")
-        ),
-        progress = progress,
-        stringsAsFactors = FALSE
-    )
-    rownames(meta) <- meta$cell_id
-
-    progress_signal <- progress
-    branch_up_signal <- as.numeric(branch_label == "tail_up") * tail_progress
-    branch_down_signal <-
-        as.numeric(branch_label == "tail_down") * tail_progress
-    radius_signal <- pmin(radius / max(radius), 1)
-    angle_signal <- sin(angle)
-    angle_cos_signal <- cos(angle)
-    root_signal <- exp(-((progress - 0.06)^2) / (2 * 0.06^2))
-    inner_signal <- exp(-((progress - 0.20)^2) / (2 * 0.08^2))
-    mid_signal <- exp(-((progress - 0.42)^2) / (2 * 0.09^2))
-    outer_signal <- exp(-((progress - 0.66)^2) / (2 * 0.08^2))
-    tail_signal <- pmax((progress - 0.78) / 0.22, 0)
-    condition_signal <- 0.20 * as.numeric(condition == "drug") +
-        0.22 * branch_down_signal
-
-    module_names <- c(
-        "root",
-        "inner",
-        "mid",
-        "outer",
-        "progress",
-        "angle_sin",
-        "angle_cos",
-        "tail_up",
-        "tail_down",
-        "condition",
-        "noise"
-    )
-
-    module_sizes <- round(
-        c(0.10, 0.10, 0.12, 0.10, 0.16, 0.08, 0.08, 0.08, 0.08, 0.06, 0.04) *
-            n_features
-    )
-    module_sizes[1] <- module_sizes[1] + (n_features - sum(module_sizes))
-    feature_module <- rep(module_names, times = module_sizes)
-
-    baseline <- stats::rnorm(n_features, mean = 0.78, sd = 0.12)
-    root_load <- rep(0, n_features)
-    inner_load <- rep(0, n_features)
-    mid_load <- rep(0, n_features)
-    outer_load <- rep(0, n_features)
-    progress_load <- rep(0, n_features)
-    angle_sin_load <- rep(0, n_features)
-    angle_cos_load <- rep(0, n_features)
-    tail_up_load <- rep(0, n_features)
-    tail_down_load <- rep(0, n_features)
-    condition_load <- rep(0, n_features)
-
-    root_load[feature_module == "root"] <- stats::runif(
-        sum(feature_module == "root"), 0.70, 0.95
-    )
-    inner_load[feature_module == "inner"] <- stats::runif(
-        sum(feature_module == "inner"), 0.60, 0.85
-    )
-    mid_load[feature_module == "mid"] <- stats::runif(
-        sum(feature_module == "mid"), 0.60, 0.85
-    )
-    outer_load[feature_module == "outer"] <- stats::runif(
-        sum(feature_module == "outer"), 0.60, 0.85
-    )
-    progress_load[feature_module == "progress"] <- stats::runif(
-        sum(feature_module == "progress"), 0.60, 0.90
-    )
-    angle_sin_load[feature_module == "angle_sin"] <- stats::runif(
-        sum(feature_module == "angle_sin"), 0.35, 0.55
-    )
-    angle_cos_load[feature_module == "angle_cos"] <- stats::runif(
-        sum(feature_module == "angle_cos"), 0.35, 0.55
-    )
-    tail_up_load[feature_module == "tail_up"] <- stats::runif(
-        sum(feature_module == "tail_up"), 0.55, 0.85
-    )
-    tail_down_load[feature_module == "tail_down"] <- stats::runif(
-        sum(feature_module == "tail_down"), 0.55, 0.85
-    )
-    condition_load[feature_module == "condition"] <- stats::runif(
-        sum(feature_module == "condition"), 0.18, 0.32
-    )
-
-    eta <- matrix(rep(baseline, each = n_cells), nrow = n_cells) +
-        outer(root_signal, root_load) +
-        outer(inner_signal, inner_load) +
-        outer(mid_signal, mid_load) +
-        outer(outer_signal + tail_signal, outer_load) +
-        outer(progress_signal + radius_signal, progress_load) +
-        outer(angle_signal, angle_sin_load) +
-        outer(angle_cos_signal, angle_cos_load) +
-        outer(branch_up_signal, tail_up_load) +
-        outer(branch_down_signal, tail_down_load) +
-        outer(condition_signal, condition_load) +
+    eta <- matrix(rep(loads$baseline, each = n_cells), nrow = n_cells) +
+        outer(sig$root, loads$root) +
+        outer(sig$inner, loads$inner) +
+        outer(sig$mid, loads$mid) +
+        outer(sig$outer + sig$tail, loads$outer) +
+        outer(sig$progress + sig$radius, loads$progress) +
+        outer(sig$angle_sin, loads$angle_sin) +
+        outer(sig$angle_cos, loads$angle_cos) +
+        outer(sig$branch_up, loads$tail_up) +
+        outer(sig$branch_down, loads$tail_down) +
+        outer(sig$condition, loads$condition) +
         matrix(
             stats::rnorm(n_cells * n_features, mean = 0, sd = 0.07),
             nrow = n_cells
         )
 
-    eta <- pmax(pmin(eta, 4.2), -1.5)
-    mu <- exp(eta)
-    mu <- t(mu)
-
-    size_factor <- stats::rgamma(n_cells, shape = 10, rate = 10)
-    mu <- sweep(mu, 2, size_factor * 6.5, `*`)
-
-    counts <- matrix(
-        stats::rnbinom(n = length(mu), mu = as.vector(mu), size = 10),
-        nrow = n_features,
-        ncol = n_cells
+    assay_list <- .tata_counts_from_eta(
+        eta,
+        cell_ids = meta$cell_id,
+        eta_max = 4.2,
+        size_scale = 6.5,
+        nb_size = 10
     )
 
-    gene_ids <- paste0("gene_", seq_len(n_features))
-    colnames(counts) <- meta$cell_id
-    rownames(counts) <- gene_ids
+    dims <- .tata_spiral_reduced_dims(geom, sig, n_pcs, meta$cell_id)
 
-    library_size <- colSums(counts)
-    norm_factor <- library_size / stats::median(library_size)
-    logcounts <- log1p(sweep(counts, 2, norm_factor, `/`))
-    rownames(logcounts) <- gene_ids
-    colnames(logcounts) <- meta$cell_id
-
-    latent_for_pca <- cbind(
-        progress = progress_signal,
-        radius = radius_signal,
-        angle_sin = angle_signal,
-        angle_cos = angle_cos_signal,
-        tail_up = branch_up_signal,
-        tail_down = branch_down_signal,
-        condition = condition_signal,
-        umap1 = scale(umap1)[, 1],
-        umap2 = scale(umap2)[, 1]
+    .tata_assemble_sce(
+        assay_list = assay_list,
+        meta = meta,
+        pcs = dims$pcs,
+        umap = dims$umap,
+        truth = dims$truth,
+        feature_module = modules$feature_module,
+        simulation = list(
+            trajectory = "spiral_divergent",
+            feature_module = modules$feature_module
+        )
     )
-    pca <- stats::prcomp(latent_for_pca, center = TRUE, scale. = TRUE)
-    n_keep <- min(n_pcs, ncol(pca$x))
-    pcs <- pca$x[, seq_len(n_keep), drop = FALSE]
-    colnames(pcs) <- paste0("PC", seq_len(ncol(pcs)))
-    rownames(pcs) <- meta$cell_id
-
-    truth <- cbind(
-        latent_progress = progress,
-        branch_code = c(spiral = 0, tail_up = 1, tail_down = -1)[branch_label]
-    )
-    rownames(truth) <- meta$cell_id
-
-    umap <- cbind(UMAP1 = umap1, UMAP2 = umap2)
-    rownames(umap) <- meta$cell_id
-
-    sce <- SingleCellExperiment::SingleCellExperiment(
-        assays = list(
-            counts = counts,
-            logcounts = logcounts
-        ),
-        colData = S4Vectors::DataFrame(meta)
-    )
-
-    SingleCellExperiment::reducedDim(sce, "PCA") <- pcs
-    SingleCellExperiment::reducedDim(sce, "UMAP") <- umap
-    SingleCellExperiment::reducedDim(sce, "truth") <- truth
-    SummarizedExperiment::rowData(sce)$feature_module <- feature_module
-
-    S4Vectors::metadata(sce)$simulation <- list(
-        trajectory = "spiral_divergent",
-        feature_module = feature_module
-    )
-
-    sce
 }
 
 
@@ -391,6 +160,543 @@ simulate_tata_multidrug_sce <- function(
     time_levels <- c(0, 24, 48, 72, 96, 120)
     branch_onset <- c(drug_A = 24, drug_B = 96, drug_C = 48)
 
+    meta <- .tata_multidrug_design(n_cells, condition_levels, time_levels)
+    activation <- .tata_multidrug_activation(meta, branch_onset, time_levels)
+    geom <- .tata_multidrug_coordinates(meta, activation)
+    meta <- .tata_multidrug_metadata(meta, geom, condition_levels)
+    sig <- .tata_multidrug_signals(meta, geom)
+    modules <- .tata_multidrug_modules(n_features)
+    loads <- modules$loads
+
+    n_obs <- nrow(meta)
+    eta <- matrix(rep(loads$baseline, each = n_obs), nrow = n_obs) +
+        outer(sig$root, loads$root) +
+        outer(sig$early, loads$early) +
+        outer(sig$mid, loads$mid) +
+        outer(sig$late, loads$late) +
+        outer(sig$center, loads$center) +
+        outer(sig$transition, loads$transition) +
+        outer(sig$branch_A, loads$branch_A) +
+        outer(sig$branch_B, loads$branch_B) +
+        outer(sig$branch_C, loads$branch_C) +
+        outer(sig$condition, loads$condition) +
+        outer(sig$umap1, loads$umap1) +
+        outer(sig$umap2, loads$umap2) +
+        matrix(
+            stats::rnorm(n_obs * n_features, mean = 0, sd = 0.08),
+            nrow = n_obs
+        )
+
+    assay_list <- .tata_counts_from_eta(
+        eta,
+        cell_ids = meta$cell_id,
+        eta_max = 4.2,
+        size_scale = 6.8,
+        nb_size = 10
+    )
+
+    dims <- .tata_multidrug_reduced_dims(meta, geom, sig, n_pcs)
+
+    .tata_assemble_sce(
+        assay_list = assay_list,
+        meta = meta,
+        pcs = dims$pcs,
+        umap = dims$umap,
+        truth = dims$truth,
+        feature_module = modules$feature_module,
+        simulation = list(
+            trajectory = "multidrug_branching",
+            branch_onset_hours = branch_onset,
+            feature_module = modules$feature_module
+        )
+    )
+}
+
+
+#' @rdname simulate_tata_sce
+#' @export
+simulate_tata_divergent_sce <- function(
+    n_cells = 5000,
+    n_features = 100,
+    n_pcs = 20
+) {
+    if (n_cells < 1000) {
+        warning(
+            "The divergent simulation is designed for larger datasets; ",
+            "consider at least 1000 cells for clearer branch structure.",
+            call. = FALSE
+        )
+    }
+
+    if (n_features < 50) {
+        stop(
+            "Please simulate at least 50 features for this example.",
+            call. = FALSE
+        )
+    }
+
+    allocation <- .tata_divergent_allocation(n_cells)
+    meta <- .tata_divergent_metadata(allocation)
+    tau <- .tata_divergent_tau(meta)
+    coords <- .tata_divergent_coordinates(tau$branch_sign, tau$tau_continuous)
+    sig <- .tata_divergent_signals(tau, coords)
+    modules <- .tata_divergent_modules(n_features)
+    loads <- modules$loads
+
+    n_obs <- nrow(meta)
+    eta <- matrix(rep(loads$baseline, each = n_obs), nrow = n_obs) +
+        outer(sig$root, loads$root) +
+        outer(sig$early, loads$early) +
+        outer(sig$mid, loads$mid) +
+        outer(sig$late, loads$late) +
+        outer(sig$branch, loads$branch) +
+        outer(sig$adaptive, loads$adaptive) +
+        outer(sig$collapse, loads$collapse) +
+        outer(sig$stress + sig$condition, loads$stress) +
+        outer(coords$latent_y, loads$latent_y) +
+        matrix(
+            stats::rnorm(n_obs * n_features, mean = 0, sd = 0.08),
+            nrow = n_obs
+        )
+
+    assay_list <- .tata_counts_from_eta(
+        eta,
+        cell_ids = meta$cell_id,
+        eta_max = 4.5,
+        size_scale = 7,
+        nb_size = 8
+    )
+
+    dims <- .tata_divergent_reduced_dims(
+        coords,
+        assay_list$logcounts,
+        n_pcs,
+        meta$cell_id
+    )
+
+    .tata_assemble_sce(
+        assay_list = assay_list,
+        meta = meta,
+        pcs = dims$pcs,
+        umap = dims$umap,
+        truth = dims$truth,
+        feature_module = modules$feature_module,
+        simulation = list(
+            allocation = allocation,
+            feature_module = modules$feature_module,
+            trajectory = "divergent"
+        )
+    )
+}
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers shared by the TATA simulators
+# ---------------------------------------------------------------------------
+
+#' Split a feature budget into named expression modules
+#'
+#' @keywords internal
+#' @noRd
+.tata_feature_modules <- function(module_names, proportions, n_features) {
+    module_sizes <- round(proportions * n_features)
+    module_sizes[1] <- module_sizes[1] + (n_features - sum(module_sizes))
+    rep(module_names, times = module_sizes)
+}
+
+
+#' Draw the baseline expression level and the per-module loading vectors
+#'
+#' `ranges` is an ordered named list of `c(min, max)` uniform bounds. The
+#' loadings are drawn in list order, so the random number stream follows the
+#' order in which the modules are declared.
+#'
+#' @keywords internal
+#' @noRd
+.tata_module_loads <- function(
+    feature_module,
+    baseline_mean,
+    baseline_sd,
+    ranges
+) {
+    n_features <- length(feature_module)
+    baseline <- stats::rnorm(
+        n_features,
+        mean = baseline_mean,
+        sd = baseline_sd
+    )
+    loads <- lapply(names(ranges), function(module) {
+        load <- rep(0, n_features)
+        in_module <- feature_module == module
+        load[in_module] <- stats::runif(
+            sum(in_module),
+            ranges[[module]][1],
+            ranges[[module]][2]
+        )
+        load
+    })
+    names(loads) <- names(ranges)
+    c(list(baseline = baseline), loads)
+}
+
+
+#' Turn a cell-by-feature latent mean matrix into counts and logcounts
+#'
+#' @keywords internal
+#' @noRd
+.tata_counts_from_eta <- function(
+    eta,
+    cell_ids,
+    eta_max,
+    size_scale,
+    nb_size
+) {
+    n_cells <- nrow(eta)
+    n_features <- ncol(eta)
+
+    eta <- pmax(pmin(eta, eta_max), -1.5)
+    mu <- exp(eta)
+    mu <- t(mu)
+
+    size_factor <- stats::rgamma(n_cells, shape = 10, rate = 10)
+    mu <- sweep(mu, 2, size_factor * size_scale, `*`)
+
+    counts <- matrix(
+        stats::rnbinom(n = length(mu), mu = as.vector(mu), size = nb_size),
+        nrow = n_features,
+        ncol = n_cells
+    )
+
+    gene_ids <- paste0("gene_", seq_len(n_features))
+    colnames(counts) <- cell_ids
+    rownames(counts) <- gene_ids
+
+    library_size <- colSums(counts)
+    norm_factor <- library_size / stats::median(library_size)
+    logcounts <- log1p(sweep(counts, 2, norm_factor, `/`))
+    rownames(logcounts) <- gene_ids
+    colnames(logcounts) <- cell_ids
+
+    list(counts = counts, logcounts = logcounts)
+}
+
+
+#' Reduce a latent matrix to the stored principal components
+#'
+#' @keywords internal
+#' @noRd
+.tata_latent_pcs <- function(x, n_pcs, cell_ids) {
+    pca <- stats::prcomp(x, center = TRUE, scale. = TRUE)
+    n_keep <- min(n_pcs, ncol(pca$x))
+    pcs <- pca$x[, seq_len(n_keep), drop = FALSE]
+    colnames(pcs) <- paste0("PC", seq_len(ncol(pcs)))
+    rownames(pcs) <- cell_ids
+    pcs
+}
+
+
+#' Assemble the simulated pieces into a SingleCellExperiment
+#'
+#' @keywords internal
+#' @noRd
+.tata_assemble_sce <- function(
+    assay_list,
+    meta,
+    pcs,
+    umap,
+    truth,
+    feature_module,
+    simulation
+) {
+    sce <- SingleCellExperiment::SingleCellExperiment(
+        assays = list(
+            counts = assay_list$counts,
+            logcounts = assay_list$logcounts
+        ),
+        colData = S4Vectors::DataFrame(meta)
+    )
+
+    SingleCellExperiment::reducedDim(sce, "PCA") <- pcs
+    SingleCellExperiment::reducedDim(sce, "UMAP") <- umap
+    SingleCellExperiment::reducedDim(sce, "truth") <- truth
+    SummarizedExperiment::rowData(sce)$feature_module <- feature_module
+
+    S4Vectors::metadata(sce)$simulation <- simulation
+
+    sce
+}
+
+
+# ---------------------------------------------------------------------------
+# Spiral simulation helpers
+# ---------------------------------------------------------------------------
+
+#' Assign each spiral cell to a branch and a position along the walk
+#'
+#' @keywords internal
+#' @noRd
+.tata_spiral_progress <- function(n_cells) {
+    branch_label <- sample(
+        x = c("spiral", "tail_up", "tail_down"),
+        size = n_cells,
+        replace = TRUE,
+        prob = c(0.72, 0.14, 0.14)
+    )
+
+    progress <- numeric(n_cells)
+    progress[branch_label == "spiral"] <- stats::rbeta(
+        sum(branch_label == "spiral"),
+        shape1 = 1.3,
+        shape2 = 1.5
+    ) * 0.82
+    progress[branch_label == "tail_up"] <- 0.82 + stats::rbeta(
+        sum(branch_label == "tail_up"),
+        shape1 = 1.2,
+        shape2 = 1.1
+    ) * 0.18
+    progress[branch_label == "tail_down"] <- 0.82 + stats::rbeta(
+        sum(branch_label == "tail_down"),
+        shape1 = 1.2,
+        shape2 = 1.1
+    ) * 0.18
+
+    list(branch_label = branch_label, progress = progress)
+}
+
+
+#' Place the spiral walk into a UMAP-like plane with two divergent tails
+#'
+#' @keywords internal
+#' @noRd
+.tata_spiral_coordinates <- function(branch_label, progress) {
+    angle <- 1.35 * pi + 3.7 * pi * pmin(progress, 0.82) / 0.82
+    radius <- 1.2 + 9.2 * pmin(progress, 0.82) / 0.82
+
+    umap1 <- radius * cos(angle)
+    umap2 <- radius * sin(angle)
+
+    end_angle <- 1.35 * pi + 3.7 * pi
+    end_radius <- 1.2 + 9.2
+    end_x <- end_radius * cos(end_angle)
+    end_y <- end_radius * sin(end_angle)
+
+    tail_progress <- pmax((progress - 0.82) / 0.18, 0)
+    up_idx <- branch_label == "tail_up"
+    down_idx <- branch_label == "tail_down"
+
+    if (any(up_idx)) {
+        umap1[up_idx] <- end_x + 5.6 * tail_progress[up_idx] +
+            stats::rnorm(sum(up_idx), sd = 0.40)
+        umap2[up_idx] <- end_y + 0.8 + 7.5 * tail_progress[up_idx] +
+            stats::rnorm(sum(up_idx), sd = 0.42)
+    }
+
+    if (any(down_idx)) {
+        umap1[down_idx] <- end_x + 5.2 * tail_progress[down_idx] +
+            stats::rnorm(sum(down_idx), sd = 0.42)
+        umap2[down_idx] <- end_y - 0.8 - 7.2 * tail_progress[down_idx] +
+            stats::rnorm(sum(down_idx), sd = 0.42)
+    }
+
+    spiral_noise <- 0.25 + 0.15 * (1 - pmin(progress, 0.82) / 0.82)
+    spiral_idx <- branch_label == "spiral"
+    umap1[spiral_idx] <- umap1[spiral_idx] +
+        stats::rnorm(sum(spiral_idx), sd = spiral_noise[spiral_idx])
+    umap2[spiral_idx] <- umap2[spiral_idx] +
+        stats::rnorm(sum(spiral_idx), sd = spiral_noise[spiral_idx])
+
+    list(
+        branch_label = branch_label,
+        progress = progress,
+        angle = angle,
+        radius = radius,
+        tail_progress = tail_progress,
+        umap1 = umap1,
+        umap2 = umap2
+    )
+}
+
+
+#' Bin the spiral walk into discrete timepoints and named states
+#'
+#' @keywords internal
+#' @noRd
+.tata_spiral_state_labels <- function(progress, branch_label) {
+    timepoint <- cut(
+        progress,
+        breaks = c(-Inf, 0.16, 0.34, 0.54, 0.74, Inf),
+        labels = c(0, 1, 2, 3, 4),
+        right = TRUE
+    )
+    timepoint <- as.integer(as.character(timepoint))
+
+    state_band <- cut(
+        progress,
+        breaks = c(-Inf, 0.12, 0.28, 0.46, 0.66, 0.82, 0.90, Inf),
+        labels = c(
+            "core", "inner", "mid", "outer", "pre_tail", "tail_early",
+            "tail_late"
+        ),
+        right = TRUE
+    )
+
+    simulated_state <- ifelse(
+        branch_label == "spiral",
+        paste0("spiral_", state_band),
+        ifelse(
+            branch_label == "tail_up",
+            paste0("tail_up_", state_band),
+            paste0("tail_down_", state_band)
+        )
+    )
+
+    list(timepoint = timepoint, simulated_state = simulated_state)
+}
+
+
+#' Derive the spiral cell annotation table from the latent geometry
+#'
+#' @keywords internal
+#' @noRd
+.tata_spiral_metadata <- function(geom, n_cells) {
+    branch_label <- geom$branch_label
+    labels <- .tata_spiral_state_labels(geom$progress, branch_label)
+
+    condition <- ifelse(
+        branch_label == "tail_down",
+        ifelse(stats::runif(n_cells) < 0.85, "drug", "control"),
+        ifelse(
+            branch_label == "tail_up",
+            ifelse(stats::runif(n_cells) < 0.80, "control", "drug"),
+            ifelse(stats::runif(n_cells) < 0.55, "control", "drug")
+        )
+    )
+
+    meta <- data.frame(
+        cell_id = paste0("bacterium_", seq_len(n_cells)),
+        timepoint = labels$timepoint,
+        condition = factor(condition, levels = c("control", "drug")),
+        simulated_state = factor(labels$simulated_state),
+        simulated_branch = factor(
+            branch_label,
+            levels = c("spiral", "tail_up", "tail_down")
+        ),
+        progress = geom$progress,
+        stringsAsFactors = FALSE
+    )
+    rownames(meta) <- meta$cell_id
+
+    list(meta = meta, condition = condition)
+}
+
+
+#' Smooth expression programs driving the spiral simulation
+#'
+#' @keywords internal
+#' @noRd
+.tata_spiral_signals <- function(geom, condition) {
+    progress <- geom$progress
+    branch_up <- as.numeric(geom$branch_label == "tail_up") *
+        geom$tail_progress
+    branch_down <- as.numeric(geom$branch_label == "tail_down") *
+        geom$tail_progress
+
+    list(
+        progress = progress,
+        radius = pmin(geom$radius / max(geom$radius), 1),
+        angle_sin = sin(geom$angle),
+        angle_cos = cos(geom$angle),
+        root = exp(-((progress - 0.06)^2) / (2 * 0.06^2)),
+        inner = exp(-((progress - 0.20)^2) / (2 * 0.08^2)),
+        mid = exp(-((progress - 0.42)^2) / (2 * 0.09^2)),
+        outer = exp(-((progress - 0.66)^2) / (2 * 0.08^2)),
+        tail = pmax((progress - 0.78) / 0.22, 0),
+        branch_up = branch_up,
+        branch_down = branch_down,
+        condition = 0.20 * as.numeric(condition == "drug") +
+            0.22 * branch_down
+    )
+}
+
+
+#' Declare the spiral feature modules and draw their loadings
+#'
+#' @keywords internal
+#' @noRd
+.tata_spiral_modules <- function(n_features) {
+    module_names <- c(
+        "root", "inner", "mid", "outer", "progress", "angle_sin",
+        "angle_cos", "tail_up", "tail_down", "condition", "noise"
+    )
+    feature_module <- .tata_feature_modules(
+        module_names,
+        c(0.10, 0.10, 0.12, 0.10, 0.16, 0.08, 0.08, 0.08, 0.08, 0.06, 0.04),
+        n_features
+    )
+
+    loads <- .tata_module_loads(
+        feature_module,
+        baseline_mean = 0.78,
+        baseline_sd = 0.12,
+        ranges = list(
+            root = c(0.70, 0.95),
+            inner = c(0.60, 0.85),
+            mid = c(0.60, 0.85),
+            outer = c(0.60, 0.85),
+            progress = c(0.60, 0.90),
+            angle_sin = c(0.35, 0.55),
+            angle_cos = c(0.35, 0.55),
+            tail_up = c(0.55, 0.85),
+            tail_down = c(0.55, 0.85),
+            condition = c(0.18, 0.32)
+        )
+    )
+
+    list(feature_module = feature_module, loads = loads)
+}
+
+
+#' Build the stored PCA, UMAP and truth matrices for the spiral simulation
+#'
+#' @keywords internal
+#' @noRd
+.tata_spiral_reduced_dims <- function(geom, sig, n_pcs, cell_ids) {
+    latent_for_pca <- cbind(
+        progress = sig$progress,
+        radius = sig$radius,
+        angle_sin = sig$angle_sin,
+        angle_cos = sig$angle_cos,
+        tail_up = sig$branch_up,
+        tail_down = sig$branch_down,
+        condition = sig$condition,
+        umap1 = scale(geom$umap1)[, 1],
+        umap2 = scale(geom$umap2)[, 1]
+    )
+    pcs <- .tata_latent_pcs(latent_for_pca, n_pcs, cell_ids)
+
+    branch_codes <- c(spiral = 0, tail_up = 1, tail_down = -1)
+    truth <- cbind(
+        latent_progress = geom$progress,
+        branch_code = branch_codes[geom$branch_label]
+    )
+    rownames(truth) <- cell_ids
+
+    umap <- cbind(UMAP1 = geom$umap1, UMAP2 = geom$umap2)
+    rownames(umap) <- cell_ids
+
+    list(pcs = pcs, umap = umap, truth = truth)
+}
+
+
+# ---------------------------------------------------------------------------
+# Multi-drug simulation helpers
+# ---------------------------------------------------------------------------
+
+#' Allocate cells across the multi-drug condition-by-time design
+#'
+#' @keywords internal
+#' @noRd
+.tata_multidrug_design <- function(n_cells, condition_levels, time_levels) {
     design <- expand.grid(
         condition = condition_levels,
         timepoint = time_levels,
@@ -418,9 +724,17 @@ simulate_tata_multidrug_sce <- function(
     rownames(meta) <- NULL
     meta <- meta[sample(seq_len(nrow(meta))), , drop = FALSE]
 
-    cell_id <- paste0("bacterium_", seq_len(nrow(meta)))
-    meta$cell_id <- cell_id
+    meta$cell_id <- paste0("bacterium_", seq_len(nrow(meta)))
+    meta
+}
 
+
+#' Draw the continuous progression and per-condition branch activation
+#'
+#' @keywords internal
+#' @noRd
+.tata_multidrug_activation <- function(meta, branch_onset, time_levels) {
+    n_obs <- nrow(meta)
     time_scaled <- meta$timepoint / max(time_levels)
     onset_scaled <- branch_onset[meta$condition] / max(time_levels)
 
@@ -430,16 +744,34 @@ simulate_tata_multidrug_sce <- function(
         1,
         pmax(
             0,
-            time_scaled + stats::rnorm(nrow(meta), mean = 0, sd = 0.07)
+            time_scaled + stats::rnorm(n_obs, mean = 0, sd = 0.07)
         )
     )
 
     branch_activation <- pmax(
         0,
-        progress - onset_scaled + stats::rnorm(nrow(meta), mean = 0, sd = 0.020)
+        progress - onset_scaled + stats::rnorm(n_obs, mean = 0, sd = 0.020)
     )
     branch_activation <- pmin(0.48, branch_activation) / 0.48
     branch_activation <- pmin(1, pmax(0, branch_activation))
+
+    list(
+        progress = progress,
+        branch_activation = branch_activation,
+        onset_scaled = onset_scaled
+    )
+}
+
+
+#' Place the shared trunk and the three drug arms in a UMAP-like plane
+#'
+#' @keywords internal
+#' @noRd
+.tata_multidrug_coordinates <- function(meta, activation) {
+    n_obs <- nrow(meta)
+    progress <- activation$progress
+    branch_activation <- activation$branch_activation
+    onset_scaled <- activation$onset_scaled
 
     branch_direction <- rbind(
         drug_A = c(-1.18, 0.12),
@@ -452,7 +784,7 @@ simulate_tata_multidrug_sce <- function(
 
     central_radius <- 0.25 + 1.05 * pmin(progress, 0.35) / 0.35
     central_angle <- 1.6 * pi * progress +
-        stats::rnorm(nrow(meta), mean = 0, sd = 0.08)
+        stats::rnorm(n_obs, mean = 0, sd = 0.08)
     trunk_x <- central_radius * cos(central_angle) * (1 - branch_activation)
     trunk_y <- -0.8 + 1.8 * progress +
         0.7 * sin(1.2 * pi * progress) * (1 - 0.4 * branch_activation)
@@ -464,13 +796,29 @@ simulate_tata_multidrug_sce <- function(
     umap1 <- trunk_x +
         branch_length * dir_x +
         0.9 * branch_bend * ifelse(meta$condition == "drug_C", 0.35, 1) +
-        stats::rnorm(nrow(meta), sd = 0.18 + 0.16 * (1 - branch_activation))
+        stats::rnorm(n_obs, sd = 0.18 + 0.16 * (1 - branch_activation))
 
     umap2 <- trunk_y +
         branch_length * dir_y +
         0.8 * bend_sign * branch_bend *
             ifelse(meta$condition == "drug_C", 0.15, 0.55) +
-        stats::rnorm(nrow(meta), sd = 0.18 + 0.16 * (1 - branch_activation))
+        stats::rnorm(n_obs, sd = 0.18 + 0.16 * (1 - branch_activation))
+
+    list(
+        progress = progress,
+        branch_activation = branch_activation,
+        umap1 = umap1,
+        umap2 = umap2
+    )
+}
+
+
+#' Attach fate labels and factor levels to the multi-drug annotation table
+#'
+#' @keywords internal
+#' @noRd
+.tata_multidrug_metadata <- function(meta, geom, condition_levels) {
+    branch_activation <- geom$branch_activation
 
     fate_label <- ifelse(
         branch_activation < 0.10,
@@ -494,225 +842,138 @@ simulate_tata_multidrug_sce <- function(
         levels = c("origin", condition_levels)
     )
     meta$branch_activation <- branch_activation
-    meta$progress <- progress
+    meta$progress <- geom$progress
     meta <- meta[, c(
         "cell_id", "timepoint", "condition", "simulated_state",
         "simulated_branch", "progress", "branch_activation"
     )]
     rownames(meta) <- meta$cell_id
+    meta
+}
 
-    root_signal <- exp(-((progress - 0.08)^2) / (2 * 0.06^2))
-    early_signal <- exp(-((progress - 0.24)^2) / (2 * 0.08^2))
-    mid_signal <- exp(-((progress - 0.50)^2) / (2 * 0.11^2))
-    late_signal <- exp(-((progress - 0.78)^2) / (2 * 0.12^2))
-    center_signal <- exp(-((progress - 0.14)^2) / (2 * 0.10^2)) *
-        (1 - branch_activation)
-    branch_A_signal <-
-        branch_activation * as.numeric(meta$condition == "drug_A")
-    branch_B_signal <-
-        branch_activation * as.numeric(meta$condition == "drug_B")
-    branch_C_signal <-
-        branch_activation * as.numeric(meta$condition == "drug_C")
-    transition_signal <- pmax(0, 1 - abs(branch_activation - 0.28) / 0.28)
+
+#' Smooth expression programs driving the multi-drug simulation
+#'
+#' @keywords internal
+#' @noRd
+.tata_multidrug_signals <- function(meta, geom) {
+    progress <- geom$progress
+    branch_activation <- geom$branch_activation
+
     # Condition-specific offsets should only appear once a branch is activated;
     # otherwise the early shared origin would split by treatment too soon.
     condition_signal <- branch_activation * (
         0.12 * as.numeric(meta$condition == "drug_B") +
             0.08 * as.numeric(meta$condition == "drug_C")
     )
-    umap1_signal <- scale(umap1)[, 1]
-    umap2_signal <- scale(umap2)[, 1]
 
-    module_names <- c(
-        "root",
-        "early",
-        "mid",
-        "late",
-        "center",
-        "transition",
-        "branch_A",
-        "branch_B",
-        "branch_C",
-        "condition",
-        "umap1",
-        "umap2",
-        "noise"
-    )
-
-    module_sizes <- round(
-        c(
-            0.09, 0.09, 0.10, 0.10, 0.08, 0.10, 0.09, 0.09, 0.09, 0.07,
-            0.06, 0.07, 0.03
-        ) * n_features
-    )
-    module_sizes[1] <- module_sizes[1] + (n_features - sum(module_sizes))
-    feature_module <- rep(module_names, times = module_sizes)
-
-    baseline <- stats::rnorm(n_features, mean = 0.82, sd = 0.13)
-    root_load <- rep(0, n_features)
-    early_load <- rep(0, n_features)
-    mid_load <- rep(0, n_features)
-    late_load <- rep(0, n_features)
-    center_load <- rep(0, n_features)
-    transition_load <- rep(0, n_features)
-    branch_A_load <- rep(0, n_features)
-    branch_B_load <- rep(0, n_features)
-    branch_C_load <- rep(0, n_features)
-    condition_load <- rep(0, n_features)
-    umap1_load <- rep(0, n_features)
-    umap2_load <- rep(0, n_features)
-
-    root_load[feature_module == "root"] <- stats::runif(
-        sum(feature_module == "root"), 0.75, 1.00
-    )
-    early_load[feature_module == "early"] <- stats::runif(
-        sum(feature_module == "early"), 0.60, 0.88
-    )
-    mid_load[feature_module == "mid"] <- stats::runif(
-        sum(feature_module == "mid"), 0.60, 0.88
-    )
-    late_load[feature_module == "late"] <- stats::runif(
-        sum(feature_module == "late"), 0.60, 0.88
-    )
-    center_load[feature_module == "center"] <- stats::runif(
-        sum(feature_module == "center"), 0.40, 0.65
-    )
-    transition_load[feature_module == "transition"] <- stats::runif(
-        sum(feature_module == "transition"), 0.45, 0.70
-    )
-    branch_A_load[feature_module == "branch_A"] <- stats::runif(
-        sum(feature_module == "branch_A"), 0.45, 0.72
-    )
-    branch_B_load[feature_module == "branch_B"] <- stats::runif(
-        sum(feature_module == "branch_B"), 0.45, 0.72
-    )
-    branch_C_load[feature_module == "branch_C"] <- stats::runif(
-        sum(feature_module == "branch_C"), 0.45, 0.72
-    )
-    condition_load[feature_module == "condition"] <- stats::runif(
-        sum(feature_module == "condition"), 0.16, 0.30
-    )
-    umap1_load[feature_module == "umap1"] <- stats::runif(
-        sum(feature_module == "umap1"), 0.18, 0.35
-    )
-    umap2_load[feature_module == "umap2"] <- stats::runif(
-        sum(feature_module == "umap2"), 0.18, 0.35
-    )
-
-    eta <- matrix(rep(baseline, each = nrow(meta)), nrow = nrow(meta)) +
-        outer(root_signal, root_load) +
-        outer(early_signal, early_load) +
-        outer(mid_signal, mid_load) +
-        outer(late_signal, late_load) +
-        outer(center_signal, center_load) +
-        outer(transition_signal, transition_load) +
-        outer(branch_A_signal, branch_A_load) +
-        outer(branch_B_signal, branch_B_load) +
-        outer(branch_C_signal, branch_C_load) +
-        outer(condition_signal, condition_load) +
-        outer(umap1_signal, umap1_load) +
-        outer(umap2_signal, umap2_load) +
-        matrix(
-            stats::rnorm(nrow(meta) * n_features, mean = 0, sd = 0.08),
-            nrow = nrow(meta)
-        )
-
-    eta <- pmax(pmin(eta, 4.2), -1.5)
-    mu <- exp(eta)
-    mu <- t(mu)
-
-    size_factor <- stats::rgamma(nrow(meta), shape = 10, rate = 10)
-    mu <- sweep(mu, 2, size_factor * 6.8, `*`)
-
-    counts <- matrix(
-        stats::rnbinom(n = length(mu), mu = as.vector(mu), size = 10),
-        nrow = n_features,
-        ncol = nrow(meta)
-    )
-
-    gene_ids <- paste0("gene_", seq_len(n_features))
-    colnames(counts) <- meta$cell_id
-    rownames(counts) <- gene_ids
-
-    library_size <- colSums(counts)
-    norm_factor <- library_size / stats::median(library_size)
-    logcounts <- log1p(sweep(counts, 2, norm_factor, `/`))
-    rownames(logcounts) <- gene_ids
-    colnames(logcounts) <- meta$cell_id
-
-    latent_for_pca <- cbind(
-        progress = progress,
-        branch_A = branch_A_signal,
-        branch_B = branch_B_signal,
-        branch_C = branch_C_signal,
-        transition = transition_signal,
+    list(
+        root = exp(-((progress - 0.08)^2) / (2 * 0.06^2)),
+        early = exp(-((progress - 0.24)^2) / (2 * 0.08^2)),
+        mid = exp(-((progress - 0.50)^2) / (2 * 0.11^2)),
+        late = exp(-((progress - 0.78)^2) / (2 * 0.12^2)),
+        center = exp(-((progress - 0.14)^2) / (2 * 0.10^2)) *
+            (1 - branch_activation),
+        branch_A = branch_activation *
+            as.numeric(meta$condition == "drug_A"),
+        branch_B = branch_activation *
+            as.numeric(meta$condition == "drug_B"),
+        branch_C = branch_activation *
+            as.numeric(meta$condition == "drug_C"),
+        transition = pmax(0, 1 - abs(branch_activation - 0.28) / 0.28),
         condition = condition_signal,
-        umap1 = umap1_signal,
-        umap2 = umap2_signal
+        umap1 = scale(geom$umap1)[, 1],
+        umap2 = scale(geom$umap2)[, 1]
     )
-    pca <- stats::prcomp(latent_for_pca, center = TRUE, scale. = TRUE)
-    n_keep <- min(n_pcs, ncol(pca$x))
-    pcs <- pca$x[, seq_len(n_keep), drop = FALSE]
-    colnames(pcs) <- paste0("PC", seq_len(ncol(pcs)))
-    rownames(pcs) <- meta$cell_id
-
-    truth <- cbind(
-        progress = progress,
-        branch_activation = branch_activation,
-        branch_code = c(
-            origin = 0, drug_A = 1, drug_B = 2, drug_C = 3
-        )[as.character(meta$simulated_branch)]
-    )
-    rownames(truth) <- meta$cell_id
-
-    umap <- cbind(UMAP1 = umap1, UMAP2 = umap2)
-    rownames(umap) <- meta$cell_id
-
-    sce <- SingleCellExperiment::SingleCellExperiment(
-        assays = list(
-            counts = counts,
-            logcounts = logcounts
-        ),
-        colData = S4Vectors::DataFrame(meta)
-    )
-
-    SingleCellExperiment::reducedDim(sce, "PCA") <- pcs
-    SingleCellExperiment::reducedDim(sce, "UMAP") <- umap
-    SingleCellExperiment::reducedDim(sce, "truth") <- truth
-    SummarizedExperiment::rowData(sce)$feature_module <- feature_module
-
-    S4Vectors::metadata(sce)$simulation <- list(
-        trajectory = "multidrug_branching",
-        branch_onset_hours = branch_onset,
-        feature_module = feature_module
-    )
-
-    sce
 }
 
 
-#' @rdname simulate_tata_sce
-#' @export
-simulate_tata_divergent_sce <- function(
-    n_cells = 5000,
-    n_features = 100,
-    n_pcs = 20
-) {
-    if (n_cells < 1000) {
-        warning(
-            "The divergent simulation is designed for larger datasets; ",
-            "consider at least 1000 cells for clearer branch structure.",
-            call. = FALSE
-        )
-    }
+#' Declare the multi-drug feature modules and draw their loadings
+#'
+#' @keywords internal
+#' @noRd
+.tata_multidrug_modules <- function(n_features) {
+    module_names <- c(
+        "root", "early", "mid", "late", "center", "transition",
+        "branch_A", "branch_B", "branch_C", "condition", "umap1",
+        "umap2", "noise"
+    )
+    feature_module <- .tata_feature_modules(
+        module_names,
+        c(
+            0.09, 0.09, 0.10, 0.10, 0.08, 0.10, 0.09, 0.09, 0.09, 0.07,
+            0.06, 0.07, 0.03
+        ),
+        n_features
+    )
 
-    if (n_features < 50) {
-        stop(
-            "Please simulate at least 50 features for this example.",
-            call. = FALSE
+    loads <- .tata_module_loads(
+        feature_module,
+        baseline_mean = 0.82,
+        baseline_sd = 0.13,
+        ranges = list(
+            root = c(0.75, 1.00),
+            early = c(0.60, 0.88),
+            mid = c(0.60, 0.88),
+            late = c(0.60, 0.88),
+            center = c(0.40, 0.65),
+            transition = c(0.45, 0.70),
+            branch_A = c(0.45, 0.72),
+            branch_B = c(0.45, 0.72),
+            branch_C = c(0.45, 0.72),
+            condition = c(0.16, 0.30),
+            umap1 = c(0.18, 0.35),
+            umap2 = c(0.18, 0.35)
         )
-    }
+    )
 
+    list(feature_module = feature_module, loads = loads)
+}
+
+
+#' Build the stored PCA, UMAP and truth matrices for the multi-drug simulation
+#'
+#' @keywords internal
+#' @noRd
+.tata_multidrug_reduced_dims <- function(meta, geom, sig, n_pcs) {
+    cell_ids <- meta$cell_id
+
+    latent_for_pca <- cbind(
+        progress = geom$progress,
+        branch_A = sig$branch_A,
+        branch_B = sig$branch_B,
+        branch_C = sig$branch_C,
+        transition = sig$transition,
+        condition = sig$condition,
+        umap1 = sig$umap1,
+        umap2 = sig$umap2
+    )
+    pcs <- .tata_latent_pcs(latent_for_pca, n_pcs, cell_ids)
+
+    branch_codes <- c(origin = 0, drug_A = 1, drug_B = 2, drug_C = 3)
+    truth <- cbind(
+        progress = geom$progress,
+        branch_activation = geom$branch_activation,
+        branch_code = branch_codes[as.character(meta$simulated_branch)]
+    )
+    rownames(truth) <- cell_ids
+
+    umap <- cbind(UMAP1 = geom$umap1, UMAP2 = geom$umap2)
+    rownames(umap) <- cell_ids
+
+    list(pcs = pcs, umap = umap, truth = truth)
+}
+
+
+# ---------------------------------------------------------------------------
+# Divergent simulation helpers
+# ---------------------------------------------------------------------------
+
+#' Allocate cells across the divergent timepoint-by-branch design
+#'
+#' @keywords internal
+#' @noRd
+.tata_divergent_allocation <- function(n_cells) {
     allocation <- data.frame(
         timepoint = c(0, 1, 1, 2, 2, 3, 3, 4, 4),
         simulated_branch = c(
@@ -729,7 +990,15 @@ simulate_tata_divergent_sce <- function(
         adjust_idx <- seq_len(abs(delta))
         allocation$n[adjust_idx] <- allocation$n[adjust_idx] + sign(delta)
     }
+    allocation
+}
 
+
+#' Expand the divergent allocation into a labelled cell annotation table
+#'
+#' @keywords internal
+#' @noRd
+.tata_divergent_metadata <- function(allocation) {
     meta <- allocation[
         rep(seq_len(nrow(allocation)), allocation$n),
         c("timepoint", "simulated_branch"),
@@ -773,6 +1042,16 @@ simulate_tata_divergent_sce <- function(
         "simulated_branch"
     )]
     rownames(meta) <- meta$cell_id
+    meta
+}
+
+
+#' Spread the labelled timepoints onto a continuous latent progression axis
+#'
+#' @keywords internal
+#' @noRd
+.tata_divergent_tau <- function(meta) {
+    n_obs <- nrow(meta)
 
     branch_sign <- ifelse(
         meta$simulated_branch == "adaptive",
@@ -788,7 +1067,7 @@ simulate_tata_divergent_sce <- function(
     tau_min <- c(`0` = 0.00, `1` = 0.08, `2` = 0.24, `3` = 0.44, `4` = 0.64)
     tau_max <- c(`0` = 0.18, `1` = 0.34, `2` = 0.58, `3` = 0.80, `4` = 1.00)
     tau_continuous <- stats::runif(
-        nrow(meta),
+        n_obs,
         min = tau_min[as.character(meta$timepoint)],
         max = tau_max[as.character(meta$timepoint)]
     )
@@ -796,9 +1075,24 @@ simulate_tata_divergent_sce <- function(
         1,
         pmax(
             0,
-            tau_continuous + stats::rnorm(nrow(meta), mean = 0, sd = 0.025)
+            tau_continuous + stats::rnorm(n_obs, mean = 0, sd = 0.025)
         )
     )
+
+    list(
+        branch_sign = branch_sign,
+        is_drug = is_drug,
+        tau_continuous = tau_continuous
+    )
+}
+
+
+#' Turn branch commitment into the divergent latent coordinates
+#'
+#' @keywords internal
+#' @noRd
+.tata_divergent_coordinates <- function(branch_sign, tau_continuous) {
+    n_obs <- length(tau_continuous)
 
     # Branch commitment turns on gradually after the root. Near the split, cells
     # from the two future branches still lie close together, generating visible
@@ -807,14 +1101,14 @@ simulate_tata_divergent_sce <- function(
         branch_sign == 0,
         0,
         stats::plogis((tau_continuous - 0.34) / 0.09) +
-            stats::rnorm(nrow(meta), mean = 0, sd = 0.035)
+            stats::rnorm(n_obs, mean = 0, sd = 0.035)
     )
     branch_strength <- pmin(1, pmax(0, branch_strength))
     branch_effect <- branch_sign * branch_strength
 
     latent_x <- 4.20 * branch_effect * (0.55 + 0.55 * tau_continuous) +
         stats::rnorm(
-            nrow(meta),
+            n_obs,
             mean = 0,
             sd = 0.11 + 0.05 * (1 - branch_strength)
         )
@@ -822,149 +1116,103 @@ simulate_tata_divergent_sce <- function(
     latent_y <- 5.00 * tau_continuous - 1.15 +
         0.45 * tau_continuous^2 -
         0.15 * branch_strength^2 +
-        stats::rnorm(nrow(meta), mean = 0, sd = 0.10)
+        stats::rnorm(n_obs, mean = 0, sd = 0.10)
 
-    root_signal <- exp(-((tau_continuous - 0.05)^2) / (2 * 0.08^2))
-    early_signal <- exp(-((tau_continuous - 0.22)^2) / (2 * 0.10^2))
-    mid_signal <- exp(-((tau_continuous - 0.48)^2) / (2 * 0.14^2))
-    late_signal <- exp(-((tau_continuous - 0.78)^2) / (2 * 0.14^2))
-    branch_signal <- branch_effect
-    adaptive_signal <- pmax(-branch_signal, 0)
+    list(
+        branch_effect = branch_effect,
+        latent_x = latent_x,
+        latent_y = latent_y
+    )
+}
+
+
+#' Smooth expression programs driving the divergent simulation
+#'
+#' @keywords internal
+#' @noRd
+.tata_divergent_signals <- function(tau, coords) {
+    tau_continuous <- tau$tau_continuous
+    is_drug <- tau$is_drug
+    branch_signal <- coords$branch_effect
     collapse_signal <- pmax(branch_signal, 0)
-    stress_signal <- 0.25 * is_drug + 0.30 * collapse_signal +
-        0.10 * tau_continuous
-    condition_signal <- 0.18 * is_drug + 0.08 * tau_continuous * is_drug
 
+    list(
+        root = exp(-((tau_continuous - 0.05)^2) / (2 * 0.08^2)),
+        early = exp(-((tau_continuous - 0.22)^2) / (2 * 0.10^2)),
+        mid = exp(-((tau_continuous - 0.48)^2) / (2 * 0.14^2)),
+        late = exp(-((tau_continuous - 0.78)^2) / (2 * 0.14^2)),
+        branch = branch_signal,
+        adaptive = pmax(-branch_signal, 0),
+        collapse = collapse_signal,
+        stress = 0.25 * is_drug + 0.30 * collapse_signal +
+            0.10 * tau_continuous,
+        condition = 0.18 * is_drug + 0.08 * tau_continuous * is_drug
+    )
+}
+
+
+#' Declare the divergent feature modules and draw their loadings
+#'
+#' The `branch` module uses a fixed alternating +/- loading rather than a
+#' random one, so it is filled in after the uniform draws and consumes no
+#' random numbers.
+#'
+#' @keywords internal
+#' @noRd
+.tata_divergent_modules <- function(n_features) {
     module_names <- c(
-        "root",
-        "early",
-        "mid",
-        "late",
-        "branch",
-        "adaptive",
-        "collapse",
-        "stress",
-        "latent_y",
-        "noise"
+        "root", "early", "mid", "late", "branch", "adaptive",
+        "collapse", "stress", "latent_y", "noise"
+    )
+    feature_module <- .tata_feature_modules(
+        module_names,
+        c(0.14, 0.14, 0.16, 0.12, 0.12, 0.08, 0.08, 0.07, 0.05, 0.04),
+        n_features
     )
 
-    module_sizes <- round(
-        c(0.14, 0.14, 0.16, 0.12, 0.12, 0.08, 0.08, 0.07, 0.05, 0.04) *
-            n_features
+    loads <- .tata_module_loads(
+        feature_module,
+        baseline_mean = 0.82,
+        baseline_sd = 0.14,
+        ranges = list(
+            root = c(0.75, 1.05),
+            early = c(0.65, 0.95),
+            mid = c(0.65, 0.95),
+            late = c(0.65, 0.95),
+            adaptive = c(0.30, 0.55),
+            collapse = c(0.30, 0.55),
+            stress = c(0.18, 0.35),
+            latent_y = c(0.22, 0.40)
+        )
     )
-    module_sizes[1] <- module_sizes[1] + (n_features - sum(module_sizes))
-    feature_module <- rep(module_names, times = module_sizes)
 
-    baseline <- stats::rnorm(n_features, mean = 0.82, sd = 0.14)
-    root_load <- rep(0, n_features)
-    early_load <- rep(0, n_features)
-    mid_load <- rep(0, n_features)
-    late_load <- rep(0, n_features)
-    branch_load <- rep(0, n_features)
-    adaptive_load <- rep(0, n_features)
-    collapse_load <- rep(0, n_features)
-    stress_load <- rep(0, n_features)
-    latent_y_load <- rep(0, n_features)
-
-    root_load[feature_module == "root"] <- stats::runif(
-        sum(feature_module == "root"), 0.75, 1.05
-    )
-    early_load[feature_module == "early"] <- stats::runif(
-        sum(feature_module == "early"), 0.65, 0.95
-    )
-    mid_load[feature_module == "mid"] <- stats::runif(
-        sum(feature_module == "mid"), 0.65, 0.95
-    )
-    late_load[feature_module == "late"] <- stats::runif(
-        sum(feature_module == "late"), 0.65, 0.95
-    )
-    branch_load[feature_module == "branch"] <- rep(
+    loads$branch <- rep(0, n_features)
+    loads$branch[feature_module == "branch"] <- rep(
         c(-0.50, 0.50), length.out = sum(feature_module == "branch")
     )
-    adaptive_load[feature_module == "adaptive"] <- stats::runif(
-        sum(feature_module == "adaptive"), 0.30, 0.55
+
+    list(feature_module = feature_module, loads = loads)
+}
+
+
+#' Build the stored PCA, UMAP and truth matrices for the divergent simulation
+#'
+#' @keywords internal
+#' @noRd
+.tata_divergent_reduced_dims <- function(coords, logcounts, n_pcs, cell_ids) {
+    pcs <- .tata_latent_pcs(t(logcounts), n_pcs, cell_ids)
+
+    truth <- cbind(
+        latent_x = coords$latent_x,
+        latent_y = coords$latent_y
     )
-    collapse_load[feature_module == "collapse"] <- stats::runif(
-        sum(feature_module == "collapse"), 0.30, 0.55
-    )
-    stress_load[feature_module == "stress"] <- stats::runif(
-        sum(feature_module == "stress"), 0.18, 0.35
-    )
-    latent_y_load[feature_module == "latent_y"] <- stats::runif(
-        sum(feature_module == "latent_y"), 0.22, 0.40
-    )
-
-    eta <- matrix(rep(baseline, each = nrow(meta)), nrow = nrow(meta)) +
-        outer(root_signal, root_load) +
-        outer(early_signal, early_load) +
-        outer(mid_signal, mid_load) +
-        outer(late_signal, late_load) +
-        outer(branch_signal, branch_load) +
-        outer(adaptive_signal, adaptive_load) +
-        outer(collapse_signal, collapse_load) +
-        outer(stress_signal + condition_signal, stress_load) +
-        outer(latent_y, latent_y_load) +
-        matrix(
-            stats::rnorm(nrow(meta) * n_features, mean = 0, sd = 0.08),
-            nrow = nrow(meta)
-        )
-
-    eta <- pmax(pmin(eta, 4.5), -1.5)
-    mu <- exp(eta)
-    mu <- t(mu)
-
-    size_factor <- stats::rgamma(nrow(meta), shape = 10, rate = 10)
-    mu <- sweep(mu, 2, size_factor * 7, `*`)
-
-    counts <- matrix(
-        stats::rnbinom(n = length(mu), mu = as.vector(mu), size = 8),
-        nrow = n_features,
-        ncol = nrow(meta)
-    )
-
-    gene_ids <- paste0("gene_", seq_len(n_features))
-    colnames(counts) <- meta$cell_id
-    rownames(counts) <- gene_ids
-
-    library_size <- colSums(counts)
-    norm_factor <- library_size / stats::median(library_size)
-    logcounts <- log1p(sweep(counts, 2, norm_factor, `/`))
-    rownames(logcounts) <- gene_ids
-    colnames(logcounts) <- meta$cell_id
-
-    pca <- stats::prcomp(t(logcounts), center = TRUE, scale. = TRUE)
-    n_keep <- min(n_pcs, ncol(pca$x))
-    pcs <- pca$x[, seq_len(n_keep), drop = FALSE]
-    colnames(pcs) <- paste0("PC", seq_len(ncol(pcs)))
-    rownames(pcs) <- meta$cell_id
-
-    truth <- cbind(latent_x = latent_x, latent_y = latent_y)
-    rownames(truth) <- meta$cell_id
+    rownames(truth) <- cell_ids
 
     umap <- cbind(
-        UMAP1 = latent_x + 0.15 * sin(latent_y),
-        UMAP2 = 0.85 * latent_y + 0.10 * sin(latent_x / 2)
+        UMAP1 = coords$latent_x + 0.15 * sin(coords$latent_y),
+        UMAP2 = 0.85 * coords$latent_y + 0.10 * sin(coords$latent_x / 2)
     )
-    rownames(umap) <- meta$cell_id
+    rownames(umap) <- cell_ids
 
-    sce <- SingleCellExperiment::SingleCellExperiment(
-        assays = list(
-            counts = counts,
-            logcounts = logcounts
-        ),
-        colData = S4Vectors::DataFrame(meta)
-    )
-
-    SingleCellExperiment::reducedDim(sce, "PCA") <- pcs
-    SingleCellExperiment::reducedDim(sce, "UMAP") <- umap
-    SingleCellExperiment::reducedDim(sce, "truth") <- truth
-    SummarizedExperiment::rowData(sce)$feature_module <- feature_module
-
-    S4Vectors::metadata(sce)$simulation <- list(
-        allocation = allocation,
-        feature_module = feature_module,
-        trajectory = "divergent"
-    )
-
-    sce
+    list(pcs = pcs, umap = umap, truth = truth)
 }

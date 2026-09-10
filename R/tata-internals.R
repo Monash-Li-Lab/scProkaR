@@ -240,80 +240,35 @@
 
     for (cluster_name in unique(clusters)) {
         idx <- which(clusters == cluster_name)
-        n_cluster <- length(idx)
 
-        if (n_cluster < max(6L, as.integer(min_cluster_size))) {
+        if (length(idx) < max(6L, as.integer(min_cluster_size))) {
             next
         }
 
-        cluster_time <- time_numeric[idx]
-        if (stats::IQR(cluster_time) < typical_step) {
-            next
-        }
-
-        split_fit <- tryCatch(
-            stats::kmeans(cluster_time, centers = 2L, nstart = 20L),
-            error = function(e) NULL
+        split_labels <- .temporal_split_labels(
+            cluster_time = time_numeric[idx],
+            typical_step = typical_step,
+            min_split_fraction = min_split_fraction,
+            min_center_gap = min_center_gap,
+            min_between_ratio = min_between_ratio
         )
 
-        if (is.null(split_fit)) {
+        if (is.null(split_labels)) {
             next
         }
 
-        split_sizes <- tabulate(split_fit$cluster, nbins = 2L)
-        if (min(split_sizes) < min_split_fraction * n_cluster) {
+        if (!is.null(embedding) && !.temporal_split_is_separated(
+            emb_cluster = embedding[idx, , drop = FALSE],
+            split_labels = split_labels,
+            min_embedding_gap = min_embedding_gap
+        )) {
             next
         }
 
-        ordered_centers <- order(as.numeric(split_fit$centers))
-        center_gap <- diff(sort(as.numeric(split_fit$centers)))
-        if (length(center_gap) == 0L ||
-                center_gap < min_center_gap * typical_step) {
-            next
-        }
-
-        between_ratio <- split_fit$betweenss / max(split_fit$totss, 1e-8)
-        if (!is.finite(between_ratio) || between_ratio < min_between_ratio) {
-            next
-        }
-
-        if (!is.null(embedding)) {
-            emb_cluster <- embedding[idx, , drop = FALSE]
-            emb_cluster <- emb_cluster[, seq_len(
-                min(5L, ncol(emb_cluster))
-            ), drop = FALSE]
-            if (ncol(emb_cluster) > 0L) {
-                emb_cluster <- scale(emb_cluster)
-                split_groups <- match(split_fit$cluster, ordered_centers)
-                centroid_1 <- colMeans(
-                    emb_cluster[split_groups == 1L, , drop = FALSE],
-                    na.rm = TRUE
-                )
-                centroid_2 <- colMeans(
-                    emb_cluster[split_groups == 2L, , drop = FALSE],
-                    na.rm = TRUE
-                )
-                embedding_gap <- sqrt(sum((centroid_1 - centroid_2)^2))
-                if (!is.finite(embedding_gap) ||
-                        embedding_gap < min_embedding_gap) {
-                    next
-                }
-            }
-        }
-
-        ordered_labels <- match(split_fit$cluster, ordered_centers)
-        refined[idx] <- paste0(cluster_name, "_", ordered_labels)
+        refined[idx] <- paste0(cluster_name, "_", split_labels)
     }
 
-    refined_levels <- unique(refined)
-    median_time <- tapply(time_numeric, refined, stats::median)
-    refined_levels <- names(sort(median_time[refined_levels], na.last = TRUE))
-    relabel_map <- stats::setNames(
-        paste0("C", seq_along(refined_levels)),
-        refined_levels
-    )
-
-    factor(relabel_map[refined], levels = unname(relabel_map))
+    .relabel_clusters_by_median_time(refined, time_numeric)
 }
 
 
@@ -324,68 +279,22 @@
     branch_probability_columns = character(0),
     n_components = 5L
 ) {
-    .safe_scale <- function(mat) {
-        mat <- as.matrix(mat)
-        if (!is.numeric(mat)) {
-            storage.mode(mat) <- "numeric"
-        }
-        keep <- apply(mat, 2L, function(x) {
-            finite_x <- x[is.finite(x)]
-            length(finite_x) > 1L && stats::sd(finite_x) > 0
-        })
-        if (!any(keep)) {
-            return(matrix(numeric(0), nrow = nrow(mat), ncol = 0L))
-        }
-        mat <- mat[, keep, drop = FALSE]
-        for (j in seq_len(ncol(mat))) {
-            col_j <- mat[, j]
-            finite_j <- col_j[is.finite(col_j)]
-            fill_value <- if (length(finite_j) > 0L)
-                stats::median(finite_j) else 0
-            col_j[!is.finite(col_j)] <- fill_value
-            sd_j <- stats::sd(col_j)
-            if (!is.finite(sd_j) || sd_j <= 0) {
-                col_j[] <- 0
-            } else {
-                col_j <- (col_j - mean(col_j)) / sd_j
-            }
-            mat[, j] <- col_j
-        }
-        mat
-    }
-
     embedding <- as.matrix(embedding)
     if (!is.numeric(embedding)) {
         storage.mode(embedding) <- "numeric"
     }
 
-    keep_dims <- seq_len(min(5L, ncol(embedding)))
-    feature_blocks <- list(.safe_scale(embedding[, keep_dims, drop = FALSE]))
+    feature_mat <- .tata_feature_matrix(
+        embedding = embedding,
+        pseudotime = pseudotime,
+        branch_probabilities = branch_probabilities,
+        branch_probability_columns = branch_probability_columns
+    )
 
-    if (!is.null(pseudotime)) {
-        feature_blocks[[length(feature_blocks) + 1L]] <- matrix(
-            .scale_to_unit(as.numeric(pseudotime)),
-            ncol = 1L
-        )
-    }
-
-    if (!is.null(branch_probabilities) &&
-            length(branch_probability_columns) > 0L) {
-        prob_mat <- as.matrix(
-            branch_probabilities[, branch_probability_columns, drop = FALSE]
-        )
-        if (!is.numeric(prob_mat)) {
-            storage.mode(prob_mat) <- "numeric"
-        }
-        prob_mat <- .safe_scale(prob_mat)
-        feature_blocks[[length(feature_blocks) + 1L]] <- 0.60 * prob_mat
-    }
-
-    feature_mat <- do.call(cbind, feature_blocks)
     if (ncol(feature_mat) == 0L) {
         return(matrix(0, nrow = nrow(embedding), ncol = 1L))
     }
-    feature_mat <- .safe_scale(feature_mat)
+    feature_mat <- .tata_safe_scale(feature_mat)
 
     if (ncol(feature_mat) == 0L) {
         return(matrix(0, nrow = nrow(embedding), ncol = 1L))
@@ -404,4 +313,183 @@
     colnames(out) <- paste0("TATA", seq_len(ncol(out)))
     rownames(out) <- rownames(embedding)
     out
+}
+
+
+#' Propose a two-way temporal split of one cluster
+#'
+#' Returns the per-cell split labels (1 or 2, ordered by increasing time
+#' centre) when a two-means split of the cluster's timepoints passes every
+#' separation threshold, and `NULL` when the cluster should be left intact.
+#'
+#' @keywords internal
+#' @noRd
+.temporal_split_labels <- function(
+    cluster_time,
+    typical_step,
+    min_split_fraction,
+    min_center_gap,
+    min_between_ratio
+) {
+    if (stats::IQR(cluster_time) < typical_step) {
+        return(NULL)
+    }
+
+    split_fit <- tryCatch(
+        stats::kmeans(cluster_time, centers = 2L, nstart = 20L),
+        error = function(e) NULL
+    )
+
+    if (is.null(split_fit)) {
+        return(NULL)
+    }
+
+    split_sizes <- tabulate(split_fit$cluster, nbins = 2L)
+    if (min(split_sizes) < min_split_fraction * length(cluster_time)) {
+        return(NULL)
+    }
+
+    ordered_centers <- order(as.numeric(split_fit$centers))
+    center_gap <- diff(sort(as.numeric(split_fit$centers)))
+    if (length(center_gap) == 0L ||
+            center_gap < min_center_gap * typical_step) {
+        return(NULL)
+    }
+
+    between_ratio <- split_fit$betweenss / max(split_fit$totss, 1e-8)
+    if (!is.finite(between_ratio) || between_ratio < min_between_ratio) {
+        return(NULL)
+    }
+
+    match(split_fit$cluster, ordered_centers)
+}
+
+
+#' Check that a proposed temporal split is also separated in the embedding
+#'
+#' Returns `TRUE` when the two split groups are at least `min_embedding_gap`
+#' apart in the scaled embedding, and also when the cluster has no usable
+#' embedding columns to test.
+#'
+#' @keywords internal
+#' @noRd
+.temporal_split_is_separated <- function(
+    emb_cluster,
+    split_labels,
+    min_embedding_gap
+) {
+    emb_cluster <- emb_cluster[, seq_len(
+        min(5L, ncol(emb_cluster))
+    ), drop = FALSE]
+
+    if (ncol(emb_cluster) == 0L) {
+        return(TRUE)
+    }
+
+    emb_cluster <- scale(emb_cluster)
+    centroid_1 <- colMeans(
+        emb_cluster[split_labels == 1L, , drop = FALSE],
+        na.rm = TRUE
+    )
+    centroid_2 <- colMeans(
+        emb_cluster[split_labels == 2L, , drop = FALSE],
+        na.rm = TRUE
+    )
+    embedding_gap <- sqrt(sum((centroid_1 - centroid_2)^2))
+
+    is.finite(embedding_gap) && embedding_gap >= min_embedding_gap
+}
+
+
+#' Relabel refined clusters as C1, C2, ... in median-time order
+#'
+#' @keywords internal
+#' @noRd
+.relabel_clusters_by_median_time <- function(refined, time_numeric) {
+    refined_levels <- unique(refined)
+    median_time <- tapply(time_numeric, refined, stats::median)
+    refined_levels <- names(sort(median_time[refined_levels], na.last = TRUE))
+    relabel_map <- stats::setNames(
+        paste0("C", seq_along(refined_levels)),
+        refined_levels
+    )
+
+    factor(relabel_map[refined], levels = unname(relabel_map))
+}
+
+
+#' Drop degenerate columns and z-score the rest
+#'
+#' Columns without at least two finite values or with zero spread are
+#' removed; remaining non-finite entries are filled with the column median
+#' before scaling.
+#'
+#' @keywords internal
+#' @noRd
+.tata_safe_scale <- function(mat) {
+    mat <- as.matrix(mat)
+    if (!is.numeric(mat)) {
+        storage.mode(mat) <- "numeric"
+    }
+    keep <- apply(mat, 2L, function(x) {
+        finite_x <- x[is.finite(x)]
+        length(finite_x) > 1L && stats::sd(finite_x) > 0
+    })
+    if (!any(keep)) {
+        return(matrix(numeric(0), nrow = nrow(mat), ncol = 0L))
+    }
+    mat <- mat[, keep, drop = FALSE]
+    for (j in seq_len(ncol(mat))) {
+        col_j <- mat[, j]
+        finite_j <- col_j[is.finite(col_j)]
+        fill_value <- if (length(finite_j) > 0L)
+            stats::median(finite_j) else 0
+        col_j[!is.finite(col_j)] <- fill_value
+        sd_j <- stats::sd(col_j)
+        if (!is.finite(sd_j) || sd_j <= 0) {
+            col_j[] <- 0
+        } else {
+            col_j <- (col_j - mean(col_j)) / sd_j
+        }
+        mat[, j] <- col_j
+    }
+    mat
+}
+
+
+#' Assemble the TATA feature matrix from embedding, pseudotime and branches
+#'
+#' @keywords internal
+#' @noRd
+.tata_feature_matrix <- function(
+    embedding,
+    pseudotime,
+    branch_probabilities,
+    branch_probability_columns
+) {
+    keep_dims <- seq_len(min(5L, ncol(embedding)))
+    feature_blocks <- list(
+        .tata_safe_scale(embedding[, keep_dims, drop = FALSE])
+    )
+
+    if (!is.null(pseudotime)) {
+        feature_blocks[[length(feature_blocks) + 1L]] <- matrix(
+            .scale_to_unit(as.numeric(pseudotime)),
+            ncol = 1L
+        )
+    }
+
+    if (!is.null(branch_probabilities) &&
+            length(branch_probability_columns) > 0L) {
+        prob_mat <- as.matrix(
+            branch_probabilities[, branch_probability_columns, drop = FALSE]
+        )
+        if (!is.numeric(prob_mat)) {
+            storage.mode(prob_mat) <- "numeric"
+        }
+        prob_mat <- .tata_safe_scale(prob_mat)
+        feature_blocks[[length(feature_blocks) + 1L]] <- 0.60 * prob_mat
+    }
+
+    do.call(cbind, feature_blocks)
 }

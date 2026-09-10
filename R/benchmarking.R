@@ -281,6 +281,40 @@ BenchmarkIntegration <- function(
 #' @keywords internal
 .scprokar_benchmark_plots <- function(scores, ranking) {
     scores$category <- .scprokar_metric_category(scores$metric)
+    category_scores <- .scprokar_benchmark_category_scores(scores)
+    tradeoff <- .scprokar_benchmark_tradeoff(category_scores)
+
+    list(
+        overall = .scprokar_plot_benchmark_ranking(ranking),
+        key_metrics = .scprokar_plot_benchmark_metrics(scores),
+        batch_removal = .scprokar_plot_benchmark_category(
+            category_scores,
+            category = "batch_removal",
+            y_label = "Mean batch-removal score",
+            plot_title = "Batch-removal comparison"
+        ),
+        bio_conservation = .scprokar_plot_benchmark_category(
+            category_scores,
+            category = "bio_conservation",
+            y_label = "Mean bio-conservation score",
+            plot_title = "Bio-conservation comparison"
+        ),
+        tradeoff = .scprokar_plot_benchmark_tradeoff(tradeoff),
+        heatmap = .scprokar_plot_benchmark_heatmap(scores)
+    )
+}
+
+#' @keywords internal
+.scprokar_metric_category <- function(metric) {
+    batch_metrics <- c("pcr_batch", "ilisi", "kbet_like", "graph_connectivity")
+    ifelse(metric %in% batch_metrics, "batch_removal", "bio_conservation")
+}
+
+#' Average metric scores within each method and metric category
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_benchmark_category_scores <- function(scores) {
     category_scores <- stats::aggregate(
         score ~ method + category,
         data = scores,
@@ -289,7 +323,14 @@ BenchmarkIntegration <- function(
     names(category_scores)[
         names(category_scores) == "score"
     ] <- "category_score"
+    category_scores
+}
 
+#' Reshape category scores into one batch-versus-bio row per method
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_benchmark_tradeoff <- function(category_scores) {
     batch_scores <- category_scores[
         category_scores$category == "batch_removal",
         c("method", "category_score"),
@@ -302,109 +343,118 @@ BenchmarkIntegration <- function(
     ]
     names(batch_scores)[2] <- "batch_removal"
     names(bio_scores)[2] <- "bio_conservation"
-    tradeoff <- merge(batch_scores, bio_scores, by = "method", all = TRUE)
-
-    list(
-        overall = ggplot2::ggplot(
-            ranking,
-            ggplot2::aes(
-                x = stats::reorder(method, score),
-                y = score,
-                fill = method
-            )
-        ) +
-            ggplot2::geom_col(show.legend = FALSE) +
-            ggplot2::coord_flip() +
-            ggplot2::labs(
-                x = "Method",
-                y = "Mean score",
-                title = "Integration ranking"
-            ) +
-            ggplot2::theme_minimal(),
-        key_metrics = ggplot2::ggplot(
-            scores,
-            ggplot2::aes(x = method, y = score, fill = method)
-        ) +
-            ggplot2::geom_col(show.legend = FALSE) +
-            ggplot2::facet_wrap(~metric, scales = "free_y") +
-            ggplot2::coord_flip() +
-            ggplot2::labs(
-                x = "Method",
-                y = "Metric score",
-                title = "Key integration metric comparison"
-            ) +
-            ggplot2::theme_minimal(),
-        batch_removal = ggplot2::ggplot(
-            category_scores[
-                category_scores$category == "batch_removal", ,
-                drop = FALSE
-            ],
-            ggplot2::aes(
-                x = stats::reorder(method, category_score),
-                y = category_score,
-                fill = method
-            )
-        ) +
-            ggplot2::geom_col(show.legend = FALSE) +
-            ggplot2::coord_flip() +
-            ggplot2::labs(
-                x = "Method",
-                y = "Mean batch-removal score",
-                title = "Batch-removal comparison"
-            ) +
-            ggplot2::theme_minimal(),
-        bio_conservation = ggplot2::ggplot(
-            category_scores[
-                category_scores$category == "bio_conservation", ,
-                drop = FALSE
-            ],
-            ggplot2::aes(
-                x = stats::reorder(method, category_score),
-                y = category_score,
-                fill = method
-            )
-        ) +
-            ggplot2::geom_col(show.legend = FALSE) +
-            ggplot2::coord_flip() +
-            ggplot2::labs(
-                x = "Method",
-                y = "Mean bio-conservation score",
-                title = "Bio-conservation comparison"
-            ) +
-            ggplot2::theme_minimal(),
-        tradeoff = ggplot2::ggplot(
-            tradeoff,
-            ggplot2::aes(
-                x = batch_removal,
-                y = bio_conservation,
-                label = method,
-                color = method
-            )
-        ) +
-            ggplot2::geom_point(size = 3, show.legend = FALSE) +
-            ggplot2::geom_text(vjust = -0.7, show.legend = FALSE) +
-            ggplot2::labs(
-                x = "Batch-removal score",
-                y = "Bio-conservation score",
-                title = "Batch-removal versus bio-conservation"
-            ) +
-            ggplot2::theme_minimal(),
-        heatmap = ggplot2::ggplot(
-            scores,
-            ggplot2::aes(x = metric, y = method, fill = score)
-        ) +
-            ggplot2::geom_tile() +
-            ggplot2::labs(
-                x = "Metric",
-                y = "Method",
-                title = "Metric score heatmap"
-            ) +
-            ggplot2::theme_minimal()
-    )
+    merge(batch_scores, bio_scores, by = "method", all = TRUE)
 }
 
+#' Bar chart of the overall integration ranking
+#'
 #' @keywords internal
-.scprokar_metric_category <- function(metric) {
-    batch_metrics <- c("pcr_batch", "ilisi", "kbet_like", "graph_connectivity")
-    ifelse(metric %in% batch_metrics, "batch_removal", "bio_conservation")
+#' @noRd
+.scprokar_plot_benchmark_ranking <- function(ranking) {
+    ggplot2::ggplot(
+        ranking,
+        ggplot2::aes(
+            x = stats::reorder(method, score),
+            y = score,
+            fill = method
+        )
+    ) +
+        ggplot2::geom_col(show.legend = FALSE) +
+        ggplot2::coord_flip() +
+        ggplot2::labs(
+            x = "Method",
+            y = "Mean score",
+            title = "Integration ranking"
+        ) +
+        ggplot2::theme_minimal()
+}
+
+#' Faceted bar chart of every individual benchmark metric
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_plot_benchmark_metrics <- function(scores) {
+    ggplot2::ggplot(
+        scores,
+        ggplot2::aes(x = method, y = score, fill = method)
+    ) +
+        ggplot2::geom_col(show.legend = FALSE) +
+        ggplot2::facet_wrap(~metric, scales = "free_y") +
+        ggplot2::coord_flip() +
+        ggplot2::labs(
+            x = "Method",
+            y = "Metric score",
+            title = "Key integration metric comparison"
+        ) +
+        ggplot2::theme_minimal()
+}
+
+#' Bar chart of the mean score for one metric category
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_plot_benchmark_category <- function(
+    category_scores, category, y_label, plot_title
+) {
+    ggplot2::ggplot(
+        category_scores[
+            category_scores$category == category, ,
+            drop = FALSE
+        ],
+        ggplot2::aes(
+            x = stats::reorder(method, category_score),
+            y = category_score,
+            fill = method
+        )
+    ) +
+        ggplot2::geom_col(show.legend = FALSE) +
+        ggplot2::coord_flip() +
+        ggplot2::labs(
+            x = "Method",
+            y = y_label,
+            title = plot_title
+        ) +
+        ggplot2::theme_minimal()
+}
+
+#' Scatter plot of batch removal against biological conservation
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_plot_benchmark_tradeoff <- function(tradeoff) {
+    ggplot2::ggplot(
+        tradeoff,
+        ggplot2::aes(
+            x = batch_removal,
+            y = bio_conservation,
+            label = method,
+            color = method
+        )
+    ) +
+        ggplot2::geom_point(size = 3, show.legend = FALSE) +
+        ggplot2::geom_text(vjust = -0.7, show.legend = FALSE) +
+        ggplot2::labs(
+            x = "Batch-removal score",
+            y = "Bio-conservation score",
+            title = "Batch-removal versus bio-conservation"
+        ) +
+        ggplot2::theme_minimal()
+}
+
+#' Heatmap of every method-by-metric score
+#'
+#' @keywords internal
+#' @noRd
+.scprokar_plot_benchmark_heatmap <- function(scores) {
+    ggplot2::ggplot(
+        scores,
+        ggplot2::aes(x = metric, y = method, fill = score)
+    ) +
+        ggplot2::geom_tile() +
+        ggplot2::labs(
+            x = "Metric",
+            y = "Method",
+            title = "Metric score heatmap"
+        ) +
+        ggplot2::theme_minimal()
 }

@@ -64,22 +64,7 @@ aggregate_pseudobulk <- function(
 ) {
     aggregation <- match.arg(aggregation)
 
-    if (!methods::is(sce, "SingleCellExperiment")) {
-        stop("`sce` must be a SingleCellExperiment.", call. = FALSE)
-    }
-
-    if (!assay_name %in% SummarizedExperiment::assayNames(sce)) {
-        stop("Assay `", assay_name, "` is not present in `sce`.", call. = FALSE)
-    }
-
-    if (length(sample_cols) == 0L ||
-        !all(sample_cols %in%
-            colnames(SummarizedExperiment::colData(sce)))) {
-        stop(
-            "`sample_cols` must all be present in `colData(sce)`.",
-            call. = FALSE
-        )
-    }
+    .check_pseudobulk_inputs(sce, sample_cols, assay_name)
 
     meta <- as.data.frame(SummarizedExperiment::colData(sce))
     keep_cells <- stats::complete.cases(meta[, sample_cols, drop = FALSE])
@@ -95,52 +80,30 @@ aggregate_pseudobulk <- function(
         sce, assay_name
     )[, keep_cells, drop = FALSE]
 
-    group_df <- meta[, sample_cols, drop = FALSE]
-    group_factor <- interaction(
-        group_df,
-        drop = TRUE,
-        lex.order = TRUE,
-        sep = "||"
+    groups <- .pseudobulk_groups(meta, sample_cols, min_cells)
+    group_factor <- groups$factor
+    ncells <- groups$ncells
+    keep_groups <- groups$keep
+
+    agg_counts <- .pseudobulk_aggregate_counts(
+        counts = counts,
+        group_factor = group_factor,
+        n_groups = length(groups$levels),
+        ncells = ncells,
+        aggregation = aggregation
     )
-    group_levels <- levels(group_factor)
-    ncells <- as.integer(table(group_factor))
-    keep_groups <- ncells >= as.integer(min_cells)
-
-    if (!any(keep_groups)) {
-        stop(
-            "No pseudobulk samples remain after applying `min_cells`.",
-            call. = FALSE
-        )
-    }
-
-    membership <- Matrix::sparseMatrix(
-        i = seq_along(group_factor),
-        j = as.integer(group_factor),
-        x = 1,
-        dims = c(length(group_factor), length(group_levels))
-    )
-
-    agg_counts <- counts %*% membership
-    if (aggregation == "mean") {
-        agg_counts <- t(t(agg_counts) / pmax(ncells, 1))
-    }
 
     agg_counts <- agg_counts[, keep_groups, drop = FALSE]
     ncells <- ncells[keep_groups]
-    kept_levels <- group_levels[keep_groups]
 
-    sample_meta <- unique(data.frame(
-        .group = as.character(group_factor),
-        group_df,
-        stringsAsFactors = FALSE
-    ))
-    sample_meta <- sample_meta[
-        match(kept_levels, sample_meta$.group), , drop = FALSE
-    ]
-    rownames(sample_meta) <- paste0(sample_prefix, seq_len(nrow(sample_meta)))
-    sample_meta$.group <- NULL
-    sample_meta$ncells <- ncells
-    sample_meta$lib.size <- Matrix::colSums(agg_counts)
+    sample_meta <- .pseudobulk_sample_meta(
+        group_factor = group_factor,
+        group_df = groups$df,
+        kept_levels = groups$levels[keep_groups],
+        ncells = ncells,
+        agg_counts = agg_counts,
+        sample_prefix = sample_prefix
+    )
 
     colnames(agg_counts) <- rownames(sample_meta)
     rownames(agg_counts) <- rownames(sce)
@@ -309,4 +272,118 @@ normalize_pseudobulk <- function(
     )
 
     pb
+}
+
+
+#' Validate the inputs accepted by `aggregate_pseudobulk()`
+#'
+#' @keywords internal
+#' @noRd
+.check_pseudobulk_inputs <- function(sce, sample_cols, assay_name) {
+    if (!methods::is(sce, "SingleCellExperiment")) {
+        stop("`sce` must be a SingleCellExperiment.", call. = FALSE)
+    }
+
+    if (!assay_name %in% SummarizedExperiment::assayNames(sce)) {
+        stop("Assay `", assay_name, "` is not present in `sce`.", call. = FALSE)
+    }
+
+    if (length(sample_cols) == 0L ||
+        !all(sample_cols %in%
+            colnames(SummarizedExperiment::colData(sce)))) {
+        stop(
+            "`sample_cols` must all be present in `colData(sce)`.",
+            call. = FALSE
+        )
+    }
+
+    invisible(NULL)
+}
+
+
+#' Define the pseudobulk grouping factor and its per-group cell counts
+#'
+#' @keywords internal
+#' @noRd
+.pseudobulk_groups <- function(meta, sample_cols, min_cells) {
+    group_df <- meta[, sample_cols, drop = FALSE]
+    group_factor <- interaction(
+        group_df,
+        drop = TRUE,
+        lex.order = TRUE,
+        sep = "||"
+    )
+    ncells <- as.integer(table(group_factor))
+    keep_groups <- ncells >= as.integer(min_cells)
+
+    if (!any(keep_groups)) {
+        stop(
+            "No pseudobulk samples remain after applying `min_cells`.",
+            call. = FALSE
+        )
+    }
+
+    list(
+        df = group_df,
+        factor = group_factor,
+        levels = levels(group_factor),
+        ncells = ncells,
+        keep = keep_groups
+    )
+}
+
+
+#' Collapse a cell-level count matrix onto the pseudobulk groups
+#'
+#' @keywords internal
+#' @noRd
+.pseudobulk_aggregate_counts <- function(
+    counts,
+    group_factor,
+    n_groups,
+    ncells,
+    aggregation
+) {
+    membership <- Matrix::sparseMatrix(
+        i = seq_along(group_factor),
+        j = as.integer(group_factor),
+        x = 1,
+        dims = c(length(group_factor), n_groups)
+    )
+
+    agg_counts <- counts %*% membership
+    if (aggregation == "mean") {
+        agg_counts <- t(t(agg_counts) / pmax(ncells, 1))
+    }
+
+    agg_counts
+}
+
+
+#' Build the `colData` table describing the retained pseudobulk samples
+#'
+#' @keywords internal
+#' @noRd
+.pseudobulk_sample_meta <- function(
+    group_factor,
+    group_df,
+    kept_levels,
+    ncells,
+    agg_counts,
+    sample_prefix
+) {
+    sample_meta <- unique(data.frame(
+        .group = as.character(group_factor),
+        group_df,
+        stringsAsFactors = FALSE
+    ))
+    sample_meta <- sample_meta[
+        match(kept_levels, sample_meta$.group), , drop = FALSE
+    ]
+    rownames(sample_meta) <- paste0(sample_prefix, seq_len(nrow(sample_meta)))
+    sample_meta$.group <- NULL
+    sample_meta$ncells <- ncells
+    sample_meta$lib.size <- Matrix::colSums(agg_counts)
+
+    sample_meta
 }
