@@ -40,9 +40,14 @@ test_that("CreateBacObject can run unintegrated preprocessing", {
 
     expect_true("logcounts" %in% SummarizedExperiment::assayNames(sce))
     expect_true("PCA" %in% SingleCellExperiment::reducedDimNames(sce))
-    expect_true("unintegrated_clusters" %in% colnames(SummarizedExperiment::colData(sce)))
+    expect_true(
+        "unintegrated_clusters" %in%
+            colnames(SummarizedExperiment::colData(sce))
+    )
     if (requireNamespace("uwot", quietly = TRUE)) {
-        expect_true("umap.unintegrated" %in% SingleCellExperiment::reducedDimNames(sce))
+        expect_true(
+            "umap.unintegrated" %in% SingleCellExperiment::reducedDimNames(sce)
+        )
     }
 })
 
@@ -224,8 +229,14 @@ test_that("CreateBacObject can assign fixed sample and batch values for 10x inpu
 
     expect_true(all(as.character(sce$sample_id) == "sample_a"))
     expect_true(all(as.character(sce$batch) == "batch_a"))
-    expect_identical(S4Vectors::metadata(sce)$SCProkaR$columns$sample_col, "sample_id")
-    expect_identical(S4Vectors::metadata(sce)$SCProkaR$columns$batch_col, "batch")
+    expect_identical(
+        S4Vectors::metadata(sce)$SCProkaR$columns$sample_col,
+        "sample_id"
+    )
+    expect_identical(
+        S4Vectors::metadata(sce)$SCProkaR$columns$batch_col,
+        "batch"
+    )
 })
 
 test_that("10x import helper can recover cell names from Barcode metadata", {
@@ -276,7 +287,9 @@ test_that("CreateBacObject accepts Seurat input when SeuratObject is available",
     sce <- CreateBacObject(seu, seurat_assay = "RNA", sample_col = "sample_id", batch_col = "batch")
 
     expect_true("counts" %in% SummarizedExperiment::assayNames(sce))
-    expect_true(all(c("pca", "umap") %in% SingleCellExperiment::reducedDimNames(sce)))
+    expect_true(
+        all(c("pca", "umap") %in% SingleCellExperiment::reducedDimNames(sce))
+    )
     expect_equal(S4Vectors::metadata(sce)$SCProkaR$seurat$assay, "RNA")
 })
 
@@ -330,12 +343,26 @@ test_that("MergeBacObjects merges per-sample objects safely", {
     expect_equal(ncol(merged), ncol(sce1) + ncol(sce2))
     expect_equal(rownames(merged), rownames(sce1))
     expect_identical(anyDuplicated(colnames(merged)), 0L)
-    expect_true("original_cell_id" %in% colnames(SummarizedExperiment::colData(merged)))
+    expect_true(
+        "original_cell_id" %in% colnames(SummarizedExperiment::colData(merged))
+    )
     expect_equal(S4Vectors::metadata(merged)$SCProkaR$merge$n_objects, 2)
-    expect_true(all(c("pca", "umap") %in% SingleCellExperiment::reducedDimNames(merged)))
-    expect_equal(nrow(SingleCellExperiment::reducedDim(merged, "pca")), ncol(merged))
-    expect_equal(nrow(SingleCellExperiment::reducedDim(merged, "umap")), ncol(merged))
-    expect_equal(ncol(SingleCellExperiment::reducedDim(merged, "pca")), ncol(SingleCellExperiment::reducedDim(sce1, "pca")))
+    expect_true(
+        all(c("pca", "umap") %in%
+            SingleCellExperiment::reducedDimNames(merged))
+    )
+    expect_equal(
+        nrow(SingleCellExperiment::reducedDim(merged, "pca")),
+        ncol(merged)
+    )
+    expect_equal(
+        nrow(SingleCellExperiment::reducedDim(merged, "umap")),
+        ncol(merged)
+    )
+    expect_equal(
+        ncol(SingleCellExperiment::reducedDim(merged, "pca")),
+        ncol(SingleCellExperiment::reducedDim(sce1, "pca"))
+    )
 })
 
 test_that("MergeBacObjects merges lists of more than two objects", {

@@ -10,10 +10,16 @@ test_that("run_edger_pairwise_de returns contrast tables and plotting helpers wo
         normalization = "TMM"
     )
 
-    expect_true(all(c("dge", "design", "fit", "tables", "combined_table") %in% names(de)))
+    expect_true(
+        all(c("dge", "design", "fit", "tables", "combined_table") %in%
+            names(de))
+    )
     expect_true("24_vs_0" %in% names(de$tables))
     expect_true(nrow(de$combined_table) > 0)
-    expect_true(all(c("gene", "logFC", "FDR", "contrast") %in% colnames(de$combined_table)))
+    expect_true(
+        all(c("gene", "logFC", "FDR", "contrast") %in%
+            colnames(de$combined_table))
+    )
 
     volcano <- plot_pairwise_de_volcano(de, contrast = "24_vs_0", top_n_labels = 5)
     ma <- plot_pairwise_de_ma(de, contrast = "24_vs_0")
@@ -34,8 +40,13 @@ test_that("run_edger_spline_de and run_scproka_de return time-series results", {
         return_curve_for = "all"
     )
 
-    expect_true(all(c("by_condition", "combined_table", "curve_data") %in% names(spline)))
-    expect_true(all(c("drug_A", "drug_B", "drug_C") %in% names(spline$by_condition)))
+    expect_true(
+        all(c("by_condition", "combined_table", "curve_data") %in%
+            names(spline))
+    )
+    expect_true(
+        all(c("drug_A", "drug_B", "drug_C") %in% names(spline$by_condition))
+    )
     expect_true(nrow(spline$combined_table) > 0)
     expect_true(nrow(spline$curve_data) > 0)
 
@@ -59,7 +70,9 @@ test_that("run_edger_spline_de and run_scproka_de return time-series results", {
         reference_level = "0"
     )
 
-    expect_true(all(c("pseudobulk", "de_result", "settings") %in% names(wrapped)))
+    expect_true(
+        all(c("pseudobulk", "de_result", "settings") %in% names(wrapped))
+    )
     expect_s4_class(wrapped$pseudobulk, "SingleCellExperiment")
     expect_true("24_vs_0" %in% names(wrapped$de_result$tables))
 })

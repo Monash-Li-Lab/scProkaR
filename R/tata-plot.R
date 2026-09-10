@@ -100,7 +100,8 @@ plot_tata_cluster_graph <- function(
         sce <- tata_result$sce
         if (!methods::is(sce, "SingleCellExperiment")) {
             stop(
-                "`layout_mode = \"embedding\"` requires `tata_result$sce` to be a SingleCellExperiment.",
+                "`layout_mode = \"embedding\"` requires `tata_result$sce` to ",
+                "be a SingleCellExperiment.",
                 call. = FALSE
             )
         }
@@ -109,25 +110,41 @@ plot_tata_cluster_graph <- function(
             if ("UMAP" %in% SingleCellExperiment::reducedDimNames(sce)) {
                 dimred <- "UMAP"
             } else {
-                stop("Please supply `dimred` for `layout_mode = \"embedding\"`.", call. = FALSE)
+                stop(
+                    "Please supply `dimred` for `layout_mode = \"embedding\"`.",
+                    call. = FALSE
+                )
             }
         }
 
         if (!dimred %in% SingleCellExperiment::reducedDimNames(sce)) {
-            stop("Reduced dimension `", dimred, "` is not present in `tata_result$sce`.", call. = FALSE)
+            stop(
+                "Reduced dimension `", dimred,
+                "` is not present in `tata_result$sce`.",
+                call. = FALSE
+            )
         }
 
         if (is.null(cluster_col)) {
             cluster_col <- tata_result$parameters$cluster_col
         }
 
-        if (is.null(cluster_col) || !cluster_col %in% colnames(SummarizedExperiment::colData(sce))) {
-            stop("A valid `cluster_col` is required for `layout_mode = \"embedding\"`.", call. = FALSE)
+        if (is.null(cluster_col) || !cluster_col %in%
+                colnames(SummarizedExperiment::colData(sce))) {
+            stop(
+                "A valid `cluster_col` is required for `layout_mode = ",
+                "\"embedding\"`.",
+                call. = FALSE
+            )
         }
 
         embedding <- as.matrix(SingleCellExperiment::reducedDim(sce, dimred))
         if (ncol(embedding) < 2L) {
-            stop("The requested reduced dimension must contain at least two columns.", call. = FALSE)
+            stop(
+                "The requested reduced dimension must contain at least two ",
+                "columns.",
+                call. = FALSE
+            )
         }
 
         meta <- as.data.frame(SummarizedExperiment::colData(sce))
@@ -141,8 +158,14 @@ plot_tata_cluster_graph <- function(
             FUN = stats::median
         )
         names(node_df)[2:3] <- c("x", "y")
-        node_df <- merge(graph_vertex_df, node_df, by = "cluster", all.x = TRUE, sort = FALSE)
-        node_df <- node_df[match(graph_vertex_df$cluster, node_df$cluster), , drop = FALSE]
+        node_df <- merge(
+            graph_vertex_df, node_df,
+            by = "cluster", all.x = TRUE, sort = FALSE
+        )
+        node_df <- node_df[
+            match(graph_vertex_df$cluster, node_df$cluster), ,
+            drop = FALSE
+        ]
 
         if (isTRUE(show_cells)) {
             if (is.null(colour_by)) {
@@ -158,10 +181,17 @@ plot_tata_cluster_graph <- function(
         }
     } else {
         if (isTRUE(show_cells)) {
-            warning("`show_cells = TRUE` is only used with `layout_mode = \"embedding\"`.", call. = FALSE)
+            warning(
+                "`show_cells = TRUE` is only used with `layout_mode = ",
+                "\"embedding\"`.",
+                call. = FALSE
+            )
         }
 
-        layout_mat <- cbind(igraph::V(cluster_graph)$x, igraph::V(cluster_graph)$y)
+        layout_mat <- cbind(
+            igraph::V(cluster_graph)$x,
+            igraph::V(cluster_graph)$y
+        )
         if (any(!is.finite(layout_mat))) {
             layout_mat <- igraph::layout_with_fr(cluster_graph)
         }
@@ -172,7 +202,10 @@ plot_tata_cluster_graph <- function(
     }
 
     if (any(!is.finite(node_df$x)) || any(!is.finite(node_df$y))) {
-        stop("Cluster node positions could not be computed for plotting.", call. = FALSE)
+        stop(
+            "Cluster node positions could not be computed for plotting.",
+            call. = FALSE
+        )
     }
 
     edge_df <- igraph::as_data_frame(cluster_graph, what = "edges")
@@ -202,13 +235,15 @@ plot_tata_cluster_graph <- function(
     }
 
     if (nrow(edge_df) > 0L && max(edge_df$weight, na.rm = TRUE) > 0) {
-        edge_df$plot_width <- 0.5 + edge_width_scale * edge_df$weight / max(edge_df$weight, na.rm = TRUE)
+        edge_df$plot_width <- 0.5 + edge_width_scale * edge_df$weight /
+            max(edge_df$weight, na.rm = TRUE)
     } else {
         edge_df$plot_width <- rep(0.5, nrow(edge_df))
     }
 
     if (length(unique(node_df$size)) > 1L) {
-        node_df$plot_size <- 4 + 6 * (node_df$size - min(node_df$size)) / diff(range(node_df$size))
+        node_df$plot_size <- 4 + 6 * (node_df$size - min(node_df$size)) /
+            diff(range(node_df$size))
     } else {
         node_df$plot_size <- rep(7, nrow(node_df))
     }
@@ -221,26 +256,39 @@ plot_tata_cluster_graph <- function(
 
     if (!is.null(cell_df) && nrow(cell_df) > 0L) {
         if (!is.null(colour_by) && colour_by == cluster_col) {
-            cell_df$colour_value <- factor(as.character(cell_df$colour_value), levels = levels(node_df$cluster))
+            cell_df$colour_value <- factor(
+                as.character(cell_df$colour_value),
+                levels = levels(node_df$cluster)
+            )
             p <- p + ggplot2::geom_point(
                 data = cell_df,
-                mapping = ggplot2::aes(x = Dim1, y = Dim2, colour = colour_value),
+                mapping = ggplot2::aes(
+                    x = Dim1, y = Dim2, colour = colour_value
+                ),
                 size = point_size,
                 alpha = point_alpha
             ) +
-                ggplot2::scale_colour_manual(values = cluster_palette, name = colour_by)
+                ggplot2::scale_colour_manual(
+                    values = cluster_palette, name = colour_by
+                )
         } else if (!is.null(colour_by) && is.numeric(cell_df$colour_value)) {
             p <- p + ggplot2::geom_point(
                 data = cell_df,
-                mapping = ggplot2::aes(x = Dim1, y = Dim2, colour = colour_value),
+                mapping = ggplot2::aes(
+                    x = Dim1, y = Dim2, colour = colour_value
+                ),
                 size = point_size,
                 alpha = point_alpha
             ) +
-                ggplot2::scale_colour_viridis_c(option = "plasma", name = colour_by)
+                ggplot2::scale_colour_viridis_c(
+                    option = "plasma", name = colour_by
+                )
         } else if (!is.null(colour_by) && !is.numeric(cell_df$colour_value)) {
             p <- p + ggplot2::geom_point(
                 data = cell_df,
-                mapping = ggplot2::aes(x = Dim1, y = Dim2, colour = colour_value),
+                mapping = ggplot2::aes(
+                    x = Dim1, y = Dim2, colour = colour_value
+                ),
                 size = point_size,
                 alpha = point_alpha
             )
@@ -261,7 +309,10 @@ plot_tata_cluster_graph <- function(
     if (nrow(ambiguous_edges) > 0L) {
         p <- p + ggplot2::geom_segment(
             data = ambiguous_edges,
-            mapping = ggplot2::aes(x = x, y = y, xend = xend, yend = yend, linewidth = plot_width),
+            mapping = ggplot2::aes(
+                x = x, y = y, xend = xend, yend = yend,
+                linewidth = plot_width
+            ),
             inherit.aes = FALSE,
             colour = "grey55",
             linetype = 2,
@@ -272,28 +323,40 @@ plot_tata_cluster_graph <- function(
     if (nrow(directed_edges) > 0L) {
         p <- p + ggplot2::geom_segment(
             data = directed_edges,
-            mapping = ggplot2::aes(x = x, y = y, xend = xend, yend = yend, linewidth = plot_width),
+            mapping = ggplot2::aes(
+                x = x, y = y, xend = xend, yend = yend,
+                linewidth = plot_width
+            ),
             inherit.aes = FALSE,
             colour = "black",
             alpha = 0.85,
-            arrow = grid::arrow(length = grid::unit(arrow_size, "inches"), type = "closed")
+            arrow = grid::arrow(
+                length = grid::unit(arrow_size, "inches"),
+                type = "closed"
+            )
         )
     }
 
     if (identical(node_colour_by, "cluster")) {
         p <- p + ggplot2::geom_point(
             data = node_df,
-            mapping = ggplot2::aes(x = x, y = y, size = plot_size, fill = cluster),
+            mapping = ggplot2::aes(
+                x = x, y = y, size = plot_size, fill = cluster
+            ),
             inherit.aes = FALSE,
             shape = 21,
             colour = "black",
             stroke = 0.5
         ) +
-            ggplot2::scale_fill_manual(values = cluster_palette, name = "cluster")
+            ggplot2::scale_fill_manual(
+                values = cluster_palette, name = "cluster"
+            )
     } else {
         p <- p + ggplot2::geom_point(
             data = node_df,
-            mapping = ggplot2::aes(x = x, y = y, size = plot_size, fill = median_time),
+            mapping = ggplot2::aes(
+                x = x, y = y, size = plot_size, fill = median_time
+            ),
             inherit.aes = FALSE,
             shape = 21,
             colour = "black",
@@ -319,8 +382,10 @@ plot_tata_cluster_graph <- function(
         ggplot2::theme_classic() +
         ggplot2::labs(
             title = main,
-            x = if (identical(layout_mode, "embedding")) paste0(dimred, "_1") else "graph_1",
-            y = if (identical(layout_mode, "embedding")) paste0(dimred, "_2") else "graph_2"
+            x = if (identical(layout_mode, "embedding"))
+                paste0(dimred, "_1") else "graph_1",
+            y = if (identical(layout_mode, "embedding"))
+                paste0(dimred, "_2") else "graph_2"
         )
 
     p
@@ -391,18 +456,29 @@ plot_tata_trajectory_embedding <- function(
     if (!is.null(max_paths)) {
         max_paths <- as.integer(max_paths)
         if (length(max_paths) != 1L || is.na(max_paths) || max_paths < 1L) {
-            stop("`max_paths` must be NULL or a single positive integer.", call. = FALSE)
+            stop(
+                "`max_paths` must be NULL or a single positive integer.",
+                call. = FALSE
+            )
         }
     }
 
     if (!dimred %in% SingleCellExperiment::reducedDimNames(sce)) {
-        stop("Reduced dimension `", dimred, "` is not present in `tata_result$sce`.", call. = FALSE)
+        stop(
+            "Reduced dimension `", dimred,
+            "` is not present in `tata_result$sce`.",
+            call. = FALSE
+        )
     }
 
     cluster_col <- tata_result$parameters$cluster_col
     embedding <- as.matrix(SingleCellExperiment::reducedDim(sce, dimred))
     if (ncol(embedding) < 2L) {
-        stop("The requested reduced dimension must contain at least two columns.", call. = FALSE)
+        stop(
+            "The requested reduced dimension must contain at least two ",
+            "columns.",
+            call. = FALSE
+        )
     }
 
     meta <- as.data.frame(SummarizedExperiment::colData(sce))
@@ -418,7 +494,10 @@ plot_tata_trajectory_embedding <- function(
 
     cluster_pt <- tata_result$cluster_pseudotime
     if (!is.null(cluster_pt) && nrow(cluster_pt) > 0L) {
-        cluster_centroids <- merge(cluster_centroids, cluster_pt, by = "cluster", all.x = TRUE, sort = FALSE)
+        cluster_centroids <- merge(
+            cluster_centroids, cluster_pt,
+            by = "cluster", all.x = TRUE, sort = FALSE
+        )
     } else {
         cluster_centroids$pseudotime <- NA_real_
         cluster_centroids$scaled_pseudotime <- NA_real_
@@ -427,16 +506,28 @@ plot_tata_trajectory_embedding <- function(
     }
 
     cluster_graph <- tata_result$cluster_graph
-    reachable_clusters <- cluster_centroids$cluster[(cluster_centroids$reachable %in% TRUE) | is.na(cluster_centroids$reachable)]
-    reachable_clusters <- intersect(reachable_clusters, igraph::V(cluster_graph)$name)
+    reachable_clusters <- cluster_centroids$cluster[
+        (cluster_centroids$reachable %in% TRUE) |
+            is.na(cluster_centroids$reachable)
+    ]
+    reachable_clusters <- intersect(
+        reachable_clusters, igraph::V(cluster_graph)$name
+    )
 
     if (!any(cluster_centroids$is_root, na.rm = TRUE)) {
-        root_cluster <- cluster_centroids$cluster[which.min(cluster_centroids$pseudotime)]
+        root_cluster <- cluster_centroids$cluster[
+            which.min(cluster_centroids$pseudotime)
+        ]
     } else {
-        root_cluster <- cluster_centroids$cluster[which(cluster_centroids$is_root)[1]]
+        root_cluster <- cluster_centroids$cluster[
+            which(cluster_centroids$is_root)[1]
+        ]
     }
 
-    subgraph <- igraph::induced_subgraph(cluster_graph, vids = reachable_clusters)
+    subgraph <- igraph::induced_subgraph(
+        cluster_graph,
+        vids = reachable_clusters
+    )
     undirected_subgraph <- igraph::as_undirected(subgraph, mode = "collapse")
 
     edge_table <- tata_result$cluster_edge_table
@@ -446,7 +537,10 @@ plot_tata_trajectory_embedding <- function(
         drop = FALSE
     ]
 
-    cluster_pt_lookup <- stats::setNames(cluster_centroids$pseudotime, cluster_centroids$cluster)
+    cluster_pt_lookup <- stats::setNames(
+        cluster_centroids$pseudotime,
+        cluster_centroids$cluster
+    )
 
     reachable_order <- cluster_centroids$cluster[
         order(cluster_centroids$pseudotime, decreasing = TRUE, na.last = NA)
@@ -467,13 +561,17 @@ plot_tata_trajectory_embedding <- function(
                 return(TRUE)
             }
 
-            later_outgoing <- outgoing[cluster_pt_lookup[outgoing] > cluster_pt_lookup[cluster_name]]
+            later_outgoing <- outgoing[
+                cluster_pt_lookup[outgoing] > cluster_pt_lookup[cluster_name]
+            ]
             length(later_outgoing) == 0L
         }
     )]
 
     if (length(terminal_clusters) == 0L) {
-        terminal_clusters <- utils::head(setdiff(reachable_order, root_cluster), 3)
+        terminal_clusters <- utils::head(
+            setdiff(reachable_order, root_cluster), 3
+        )
     }
 
     path_info_list <- vector("list", length(terminal_clusters))
@@ -496,14 +594,23 @@ plot_tata_trajectory_embedding <- function(
                     from = root_cluster,
                     to = terminal_cluster,
                     mode = "all",
-                    weights = 1 / pmax(igraph::E(undirected_subgraph)$weight, 1e-8)
+                    weights = 1 / pmax(
+                        igraph::E(undirected_subgraph)$weight, 1e-8
+                    )
                 )$vpath[[1]]
             )
         }
 
         path_clusters <- igraph::V(subgraph)$name[as.integer(path_vertices)]
-        path_df <- cluster_centroids[match(path_clusters, cluster_centroids$cluster), c("cluster", "Dim1", "Dim2", "scaled_pseudotime"), drop = FALSE]
-        path_df <- path_df[stats::complete.cases(path_df[, c("Dim1", "Dim2")]), , drop = FALSE]
+        path_df <- cluster_centroids[
+            match(path_clusters, cluster_centroids$cluster),
+            c("cluster", "Dim1", "Dim2", "scaled_pseudotime"),
+            drop = FALSE
+        ]
+        path_df <- path_df[
+            stats::complete.cases(path_df[, c("Dim1", "Dim2")]), ,
+            drop = FALSE
+        ]
         if (nrow(path_df) < 2L) {
             next
         }
@@ -525,7 +632,10 @@ plot_tata_trajectory_embedding <- function(
 
     if (!is.null(max_paths) && length(path_info_list) > max_paths) {
         path_rank <- order(
-            vapply(path_info_list, function(x) x$terminal_pseudotime, numeric(1)),
+            vapply(
+                path_info_list, function(x) x$terminal_pseudotime,
+                numeric(1)
+            ),
             decreasing = TRUE
         )
         path_info_list <- path_info_list[path_rank[seq_len(max_paths)]]
@@ -537,9 +647,16 @@ plot_tata_trajectory_embedding <- function(
 
         if (isTRUE(smooth_paths) && nrow(path_df) >= 4L) {
             spline_index <- seq_len(nrow(path_df))
-            x_spline <- stats::smooth.spline(spline_index, path_df$Dim1, spar = 0.5)
-            y_spline <- stats::smooth.spline(spline_index, path_df$Dim2, spar = 0.5)
-            new_index <- seq(min(spline_index), max(spline_index), length.out = n_curve_points)
+            x_spline <- stats::smooth.spline(
+                spline_index, path_df$Dim1, spar = 0.5
+            )
+            y_spline <- stats::smooth.spline(
+                spline_index, path_df$Dim2, spar = 0.5
+            )
+            new_index <- seq(
+                min(spline_index), max(spline_index),
+                length.out = n_curve_points
+            )
             curve_df <- data.frame(
                 path_id = paste0("path_", i),
                 terminal_cluster = path_info_list[[i]]$terminal_cluster,
@@ -593,7 +710,10 @@ plot_tata_trajectory_embedding <- function(
             colour = curve_colour,
             linewidth = 1.1,
             lineend = "round",
-            arrow = grid::arrow(length = grid::unit(0.15, "inches"), type = "closed")
+            arrow = grid::arrow(
+                length = grid::unit(0.15, "inches"),
+                type = "closed"
+            )
         )
     }
 
@@ -622,9 +742,14 @@ plot_tata_trajectory_embedding <- function(
 
     p <- p +
         ggplot2::theme_classic() +
-        ggplot2::labs(x = paste0(dimred, "_1"), y = paste0(dimred, "_2"), colour = colour_by)
+        ggplot2::labs(
+            x = paste0(dimred, "_1"),
+            y = paste0(dimred, "_2"),
+            colour = colour_by
+        )
 
-    if (!is.null(colour_by) && colour_by %in% colnames(meta) && !discrete_colour) {
+    if (!is.null(colour_by) && colour_by %in% colnames(meta) &&
+            !discrete_colour) {
         p <- p + ggplot2::scale_colour_viridis_c(option = "plasma")
     }
 
@@ -672,7 +797,10 @@ plot_tata_edge_causality <- function(
 ) {
     edge_df <- tata_result$cluster_edge_table
     if (is.null(edge_df) || nrow(edge_df) == 0L) {
-        stop("`tata_result` does not contain a cluster edge table.", call. = FALSE)
+        stop(
+            "`tata_result` does not contain a cluster edge table.",
+            call. = FALSE
+        )
     }
 
     if (isTRUE(kept_only)) {
@@ -698,7 +826,9 @@ plot_tata_edge_causality <- function(
     ) +
         ggplot2::geom_hline(yintercept = 0, linetype = 2, colour = "grey60") +
         ggplot2::geom_point(alpha = 0.85) +
-        ggplot2::scale_colour_manual(values = c(kept = "#1b9e77", pruned = "#c94c4c")) +
+        ggplot2::scale_colour_manual(
+            values = c(kept = "#1b9e77", pruned = "#c94c4c")
+        ) +
         ggplot2::theme_classic() +
         ggplot2::labs(
             title = "TATA edge causality diagnostic",
@@ -776,10 +906,16 @@ plot_tata_time_calibration <- function(
         time_col <- tata_result$parameters$time_col
     }
     if (is.null(time_col) || !time_col %in% colnames(meta)) {
-        stop("A valid `time_col` is required for time calibration plotting.", call. = FALSE)
+        stop(
+            "A valid `time_col` is required for time calibration plotting.",
+            call. = FALSE
+        )
     }
     if (!pseudotime_col %in% colnames(meta)) {
-        stop("`pseudotime_col` is not present in `colData(sce)`.", call. = FALSE)
+        stop(
+            "`pseudotime_col` is not present in `colData(sce)`.",
+            call. = FALSE
+        )
     }
 
     plot_df <- data.frame(
@@ -793,11 +929,19 @@ plot_tata_time_calibration <- function(
         plot_df$branch <- "all"
     }
 
-    plot_df <- plot_df[is.finite(plot_df$timepoint) & is.finite(plot_df$pseudotime), , drop = FALSE]
+    plot_df <- plot_df[
+        is.finite(plot_df$timepoint) & is.finite(plot_df$pseudotime), ,
+        drop = FALSE
+    ]
 
     if (summary == "boxplot") {
         return(
-            ggplot2::ggplot(plot_df, ggplot2::aes(x = factor(timepoint), y = pseudotime, fill = branch)) +
+            ggplot2::ggplot(
+                plot_df,
+                ggplot2::aes(
+                    x = factor(timepoint), y = pseudotime, fill = branch
+                )
+            ) +
                 ggplot2::geom_boxplot(outlier.size = 0.2, alpha = 0.8) +
                 ggplot2::theme_classic() +
                 ggplot2::labs(
@@ -823,8 +967,17 @@ plot_tata_time_calibration <- function(
     summary_df <- do.call(data.frame, summary_df)
     colnames(summary_df) <- c("timepoint", "branch", "median", "q25", "q75")
 
-    ggplot2::ggplot(summary_df, ggplot2::aes(x = timepoint, y = median, colour = branch, fill = branch, group = branch)) +
-        ggplot2::geom_ribbon(ggplot2::aes(ymin = q25, ymax = q75), alpha = 0.18, linewidth = 0, colour = NA) +
+    ggplot2::ggplot(
+        summary_df,
+        ggplot2::aes(
+            x = timepoint, y = median, colour = branch,
+            fill = branch, group = branch
+        )
+    ) +
+        ggplot2::geom_ribbon(
+            ggplot2::aes(ymin = q25, ymax = q75),
+            alpha = 0.18, linewidth = 0, colour = NA
+        ) +
         ggplot2::geom_line(linewidth = 0.9) +
         ggplot2::geom_point(size = 1.8) +
         ggplot2::theme_classic() +
@@ -881,7 +1034,11 @@ plot_tata_branch_confusion <- function(
     normalize <- match.arg(normalize)
     meta <- as.data.frame(SummarizedExperiment::colData(tata_result$sce))
     if (!truth_col %in% colnames(meta) || !predicted_col %in% colnames(meta)) {
-        stop("Both `truth_col` and `predicted_col` must be present in `colData(sce)`.", call. = FALSE)
+        stop(
+            "Both `truth_col` and `predicted_col` must be present in ",
+            "`colData(sce)`.",
+            call. = FALSE
+        )
     }
 
     tab <- as.data.frame(table(
@@ -891,16 +1048,24 @@ plot_tata_branch_confusion <- function(
     names(tab)[3] <- "value"
 
     if (normalize == "truth") {
-        tab$value <- tab$value / stats::ave(tab$value, tab$truth, FUN = function(x) pmax(sum(x), 1))
+        tab$value <- tab$value / stats::ave(
+            tab$value, tab$truth,
+            FUN = function(x) pmax(sum(x), 1)
+        )
     } else if (normalize == "predicted") {
-        tab$value <- tab$value / stats::ave(tab$value, tab$predicted, FUN = function(x) pmax(sum(x), 1))
+        tab$value <- tab$value / stats::ave(
+            tab$value, tab$predicted,
+            FUN = function(x) pmax(sum(x), 1)
+        )
     }
 
     ggplot2::ggplot(tab, ggplot2::aes(x = predicted, y = truth, fill = value)) +
         ggplot2::geom_tile(colour = "white") +
         ggplot2::scale_fill_viridis_c(option = "C") +
         ggplot2::theme_classic() +
-        ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)) +
+        ggplot2::theme(
+            axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)
+        ) +
         ggplot2::labs(
             title = "Truth-aligned TATA branch assignment matrix",
             x = "predicted branch",
@@ -949,12 +1114,19 @@ plot_tata_branch_probabilities <- function(
 ) {
     sce <- tata_result$sce
     if (!dimred %in% SingleCellExperiment::reducedDimNames(sce)) {
-        stop("Reduced dimension `", dimred, "` is not present in `tata_result$sce`.", call. = FALSE)
+        stop(
+            "Reduced dimension `", dimred,
+            "` is not present in `tata_result$sce`.",
+            call. = FALSE
+        )
     }
 
     branch_prob_df <- tata_result$branch_probabilities
     if (is.null(branch_prob_df)) {
-        stop("`tata_result` does not contain branch probabilities.", call. = FALSE)
+        stop(
+            "`tata_result` does not contain branch probabilities.",
+            call. = FALSE
+        )
     }
 
     if (is.null(branches)) {
@@ -981,7 +1153,10 @@ plot_tata_branch_probabilities <- function(
         direction = "long"
     )
 
-    ggplot2::ggplot(long_df, ggplot2::aes(x = Dim1, y = Dim2, colour = probability)) +
+    ggplot2::ggplot(
+        long_df,
+        ggplot2::aes(x = Dim1, y = Dim2, colour = probability)
+    ) +
         ggplot2::geom_point(size = point_size, alpha = point_alpha) +
         ggplot2::facet_wrap(~branch, ncol = ncol) +
         ggplot2::scale_colour_viridis_c(option = "magma", limits = c(0, 1)) +
@@ -1047,12 +1222,19 @@ plot_tata_branch_selection <- function(
         cell_id = colnames(sce),
         Dim1 = embedding[, 1],
         Dim2 = embedding[, 2],
-        selection_df[match(colnames(sce), selection_df$cell_id), c("probability", "selected"), drop = FALSE],
+        selection_df[
+            match(colnames(sce), selection_df$cell_id),
+            c("probability", "selected"),
+            drop = FALSE
+        ],
         stringsAsFactors = FALSE
     )
 
     ggplot2::ggplot(plot_df, ggplot2::aes(x = Dim1, y = Dim2)) +
-        ggplot2::geom_point(colour = "grey85", size = point_size, alpha = point_alpha * 0.6) +
+        ggplot2::geom_point(
+            colour = "grey85", size = point_size,
+            alpha = point_alpha * 0.6
+        ) +
         ggplot2::geom_point(
             data = plot_df[plot_df$selected, , drop = FALSE],
             mapping = ggplot2::aes(colour = probability),
@@ -1104,15 +1286,24 @@ plot_tata_terminal_probabilities <- function(
 ) {
     branch_prob_df <- tata_result$branch_probabilities
     if (is.null(branch_prob_df)) {
-        stop("`tata_result` does not contain branch probabilities.", call. = FALSE)
+        stop(
+            "`tata_result` does not contain branch probabilities.",
+            call. = FALSE
+        )
     }
 
     if (is.null(cell_ids)) {
-        rank_idx <- order(branch_prob_df$tata_branch_entropy, decreasing = TRUE, na.last = NA)
+        rank_idx <- order(
+            branch_prob_df$tata_branch_entropy,
+            decreasing = TRUE, na.last = NA
+        )
         cell_ids <- branch_prob_df$cell_id[utils::head(rank_idx, n_cells)]
     }
 
-    keep_df <- branch_prob_df[match(cell_ids, branch_prob_df$cell_id), , drop = FALSE]
+    keep_df <- branch_prob_df[
+        match(cell_ids, branch_prob_df$cell_id), ,
+        drop = FALSE
+    ]
     branch_cols <- grep("^tata_prob_", colnames(keep_df), value = TRUE)
     branch_names <- sub("^tata_prob_", "", branch_cols)
 
@@ -1125,11 +1316,16 @@ plot_tata_terminal_probabilities <- function(
         direction = "long"
     )
 
-    ggplot2::ggplot(plot_df, ggplot2::aes(x = branch, y = probability, fill = branch)) +
+    ggplot2::ggplot(
+        plot_df,
+        ggplot2::aes(x = branch, y = probability, fill = branch)
+    ) +
         ggplot2::geom_col(width = 0.72) +
         ggplot2::facet_wrap(~cell_id) +
         ggplot2::theme_classic() +
-        ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)) +
+        ggplot2::theme(
+            axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)
+        ) +
         ggplot2::labs(
             title = "Terminal-branch probabilities for representative cells",
             x = "branch",
@@ -1184,7 +1380,10 @@ plot_tata_gene_trends <- function(
 
     ggplot2::ggplot(
         trend_df,
-        ggplot2::aes(x = pseudotime, y = fitted_expression, colour = branch, group = branch)
+        ggplot2::aes(
+            x = pseudotime, y = fitted_expression,
+            colour = branch, group = branch
+        )
     ) +
         ggplot2::geom_line(linewidth = 1) +
         ggplot2::facet_wrap(~gene, scales = "free_y", ncol = ncol) +
@@ -1265,19 +1464,33 @@ plot_tata_gene_trend_heatmap <- function(
             trend_result = list(trend_table = trend_df),
             n_clusters = n_clusters
         )
-        trend_df <- merge(trend_df, cluster_df, by = "gene", all.x = TRUE, sort = FALSE)
-        trend_df <- trend_df[order(trend_df$trend_cluster, trend_df$gene, trend_df$branch, trend_df$pseudotime), , drop = FALSE]
+        trend_df <- merge(
+            trend_df, cluster_df,
+            by = "gene", all.x = TRUE, sort = FALSE
+        )
+        trend_df <- trend_df[
+            order(
+                trend_df$trend_cluster, trend_df$gene,
+                trend_df$branch, trend_df$pseudotime
+            ), ,
+            drop = FALSE
+        ]
     }
 
     gene_levels <- unique(trend_df$gene_branch)
-    trend_df$gene_branch <- factor(trend_df$gene_branch, levels = rev(gene_levels))
+    trend_df$gene_branch <- factor(
+        trend_df$gene_branch,
+        levels = rev(gene_levels)
+    )
 
     ggplot2::ggplot(
         trend_df,
         ggplot2::aes(x = pseudotime, y = gene_branch, fill = fitted_expression)
     ) +
         ggplot2::geom_tile() +
-        ggplot2::scale_fill_gradient2(low = "#2166ac", mid = "white", high = "#b2182b") +
+        ggplot2::scale_fill_gradient2(
+            low = "#2166ac", mid = "white", high = "#b2182b"
+        ) +
         ggplot2::theme_classic() +
         ggplot2::labs(
             title = "Heatmap of branch-specific TATA gene trends",
@@ -1330,7 +1543,10 @@ plot_tata_results <- function(
         stringsAsFactors = FALSE
     )
 
-    pseudotime_plot <- ggplot2::ggplot(plot_df, ggplot2::aes(x = Dim1, y = Dim2, colour = pseudotime)) +
+    pseudotime_plot <- ggplot2::ggplot(
+        plot_df,
+        ggplot2::aes(x = Dim1, y = Dim2, colour = pseudotime)
+    ) +
         ggplot2::geom_point(size = 0.6, alpha = 0.8) +
         ggplot2::scale_colour_viridis_c(option = "plasma") +
         ggplot2::theme_classic() +
@@ -1341,7 +1557,10 @@ plot_tata_results <- function(
             colour = "pseudotime"
         )
 
-    entropy_plot <- ggplot2::ggplot(plot_df, ggplot2::aes(x = Dim1, y = Dim2, colour = entropy)) +
+    entropy_plot <- ggplot2::ggplot(
+        plot_df,
+        ggplot2::aes(x = Dim1, y = Dim2, colour = entropy)
+    ) +
         ggplot2::geom_point(size = 0.6, alpha = 0.8) +
         ggplot2::scale_colour_viridis_c(option = "cividis") +
         ggplot2::theme_classic() +
@@ -1357,7 +1576,13 @@ plot_tata_results <- function(
         entropy = entropy_plot,
         time_calibration = plot_tata_time_calibration(tata_result),
         edge_causality = plot_tata_edge_causality(tata_result),
-        branch_probabilities = plot_tata_branch_probabilities(tata_result, dimred = dimred),
-        representative_cells = plot_tata_terminal_probabilities(tata_result, n_cells = n_probability_cells)
+        branch_probabilities = plot_tata_branch_probabilities(
+            tata_result,
+            dimred = dimred
+        ),
+        representative_cells = plot_tata_terminal_probabilities(
+            tata_result,
+            n_cells = n_probability_cells
+        )
     )
 }

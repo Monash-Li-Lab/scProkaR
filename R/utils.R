@@ -11,11 +11,15 @@ NULL
 #' @keywords internal
 .scprokar_require <- function(pkg, reason = NULL) {
     if (!requireNamespace(pkg, quietly = TRUE)) {
-        message <- paste0("Package '", pkg, "' is required")
-        if (!is.null(reason)) {
-            message <- paste0(message, " for ", reason)
-        }
-        stop(paste0(message, ". Install it first."), call. = FALSE)
+        ## stop() concatenates its arguments, so build the message from
+        ## separate pieces rather than with paste(), which BiocCheck flags
+        ## in condition signals.
+        purpose <- if (is.null(reason)) "" else paste0(" for ", reason)
+        stop(
+            "Package '", pkg, "' is required", purpose,
+            ". Install it first.",
+            call. = FALSE
+        )
     }
     invisible(TRUE)
 }
@@ -50,7 +54,8 @@ NULL
     valid <- inherits(counts, "matrix") || inherits(counts, "Matrix")
     if (!valid) {
         stop(
-            "`x` must be a matrix-like gene-by-cell count object or a SingleCellExperiment.",
+            "`x` must be a matrix-like gene-by-cell count object or a ",
+            "SingleCellExperiment.",
             call. = FALSE
         )
     }
@@ -273,8 +278,10 @@ NULL
     } else {
         if ((nrow(x_sparse) * ncol(x_sparse)) > 5e7) {
             stop(
-                "Sparse-aware PCA requires the optional package 'irlba' for larger datasets. ",
-                "Install it or reduce the feature set before running `run_unintegrated = TRUE`.",
+                "Sparse-aware PCA requires the optional package 'irlba' for ",
+                "larger datasets. ",
+                "Install it or reduce the feature set before running ",
+                "`run_unintegrated = TRUE`.",
                 call. = FALSE
             )
         }
@@ -300,7 +307,7 @@ NULL
     sce,
     assay_name = "counts",
     feature_set = c("hvg", "all"),
-    dims = 1:30,
+    dims = seq_len(30),
     reduction_name = "PCA"
 ) {
     feature_set <- match.arg(feature_set)
@@ -327,7 +334,7 @@ NULL
 .scprokar_run_unintegrated_workflow <- function(
     sce,
     feature_set = "hvg",
-    dims = 1:30,
+    dims = seq_len(30),
     cluster_col = "unintegrated_clusters",
     umap_name = "umap.unintegrated",
     k = 20,

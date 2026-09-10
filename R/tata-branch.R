@@ -867,7 +867,8 @@ compute_tata_gene_trends <- function(
     trend_rows <- Filter(Negate(is.null), trend_rows)
     if (length(trend_rows) == 0L) {
         stop(
-            "No branch-specific gene trends could be fit with the current settings.",
+            "No branch-specific gene trends could be fit with the current ",
+            "settings.",
             call. = FALSE
         )
     }

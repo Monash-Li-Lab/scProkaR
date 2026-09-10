@@ -48,7 +48,8 @@ level. This is the default.
 used.}
 
 \item{manual_pairs}{Optional two-column matrix or data frame of manual
-contrasts with \code{group1} and \code{group2} values. Each test is \code{group1 - group2}.}
+contrasts with \code{group1} and \code{group2} values. Each test is
+\code{group1 - group2}.}
 
 \item{normalization}{Library-size normalization method. Choices are:
 \itemize{

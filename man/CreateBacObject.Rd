@@ -24,7 +24,7 @@ CreateBacObject(
   transfer_reductions = TRUE,
   run_unintegrated = FALSE,
   unintegrated_feature_set = c("hvg", "all"),
-  unintegrated_dims = 1:30,
+  unintegrated_dims = seq_len(30),
   unintegrated_cluster_col = "unintegrated_clusters",
   unintegrated_umap_name = "umap.unintegrated",
   unintegrated_k = 20,
@@ -40,7 +40,8 @@ Seurat object from an \code{.rds} file, or a Cell Ranger output directory.}
 
 \item{cell_metadata}{Optional cell-level metadata with one row per cell.}
 
-\item{feature_metadata}{Optional feature-level metadata with one row per gene.}
+\item{feature_metadata}{Optional feature-level metadata with one row per
+gene.}
 
 \item{feature_name_col}{Optional \code{rowData} column to use as the primary
 feature name when \code{x} is a \code{SingleCellExperiment} or 10x-derived object.

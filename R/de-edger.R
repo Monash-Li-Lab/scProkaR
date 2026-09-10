@@ -74,7 +74,8 @@
     if (contrast_type == "manual") {
         if (is.null(manual_pairs)) {
             stop(
-                "`manual_pairs` must be supplied when `contrast_type = \"manual\"`.",
+                "`manual_pairs` must be supplied when `contrast_type = ",
+                "\"manual\"`.",
                 call. = FALSE
             )
         }
@@ -426,7 +427,8 @@ run_edger_pairwise_de <- function(
     keep <- stats::complete.cases(meta[, needed_cols, drop = FALSE])
     if (!any(keep)) {
         stop(
-            "No pseudobulk samples have complete values for the requested model.",
+            "No pseudobulk samples have complete values for the requested ",
+            "model.",
             call. = FALSE
         )
     }
@@ -740,7 +742,8 @@ plot_pairwise_de_ma <- function(
 
     if (!"logCPM" %in% colnames(tab)) {
         stop(
-            "The selected DE table does not contain a `logCPM` column for MA plotting.",
+            "The selected DE table does not contain a `logCPM` column for MA ",
+            "plotting.",
             call. = FALSE
         )
     }
@@ -797,7 +800,8 @@ plot_pairwise_de_ma <- function(
     effective_df <- min(as.integer(df), length(unique(time_numeric)) - 1L)
     if (effective_df < 1L) {
         stop(
-            "Spline DE requires at least one estimable spline degree of freedom.",
+            "Spline DE requires at least one estimable spline degree of ",
+            "freedom.",
             call. = FALSE
         )
     }
@@ -1010,7 +1014,8 @@ run_edger_spline_de <- function(
     needed_cols <- unique(c(time_col, condition_col, covariates))
     if (!all(needed_cols %in% colnames(meta))) {
         stop(
-            "All requested time, condition, and covariate columns must exist in `colData(pb)`.",
+            "All requested time, condition, and covariate columns must exist ",
+            "in `colData(pb)`.",
             call. = FALSE
         )
     }
@@ -1018,7 +1023,8 @@ run_edger_spline_de <- function(
     keep <- stats::complete.cases(meta[, needed_cols, drop = FALSE])
     if (!any(keep)) {
         stop(
-            "No pseudobulk samples have complete values for the requested model.",
+            "No pseudobulk samples have complete values for the requested ",
+            "model.",
             call. = FALSE
         )
     }

@@ -25,8 +25,8 @@ run_edger_spline_de(
 
 \item{time_col}{Sample metadata column containing numeric or ordered time.}
 
-\item{condition_col}{Optional sample metadata column defining conditions to be
-analysed separately, for example treatment.}
+\item{condition_col}{Optional sample metadata column defining conditions
+to be analysed separately, for example treatment.}
 
 \item{covariates}{Optional additive covariates to include in each
 condition-specific model.}

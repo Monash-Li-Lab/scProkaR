@@ -9,7 +9,7 @@ IntegrateBacData(
   batch_col,
   method = c("mnn", "harmony"),
   feature_set = c("hvg", "all"),
-  dims = 1:30,
+  dims = seq_len(30),
   assay_name = "counts",
   integrated_name = NULL,
   ...

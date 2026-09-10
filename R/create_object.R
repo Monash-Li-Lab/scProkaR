@@ -116,7 +116,7 @@ CreateBacObject <- function(
     transfer_reductions = TRUE,
     run_unintegrated = FALSE,
     unintegrated_feature_set = c("hvg", "all"),
-    unintegrated_dims = 1:30,
+    unintegrated_dims = seq_len(30),
     unintegrated_cluster_col = "unintegrated_clusters",
     unintegrated_umap_name = "umap.unintegrated",
     unintegrated_k = 20,
@@ -657,7 +657,8 @@ MergeBacObjects <- function(
 
     stop(
         "Could not determine cell barcodes from the imported 10x object. ",
-        "Expected barcodes in `colnames(sce)` or in a colData column such as `Barcode`.",
+        "Expected barcodes in `colnames(sce)` or in a colData column such as ",
+        "`Barcode`.",
         call. = FALSE
     )
 }
@@ -707,7 +708,8 @@ MergeBacObjects <- function(
 
     stop(
         "Could not determine feature names from the imported object. ",
-        "Expected names in `rownames(sce)` or in rowData columns such as `Symbol` or `ID`.",
+        "Expected names in `rownames(sce)` or in rowData columns such as ",
+        "`Symbol` or `ID`.",
         call. = FALSE
     )
 }
@@ -839,7 +841,8 @@ MergeBacObjects <- function(
 
     stop(
         "Could not locate a 10x matrix directory under '", source_dir,
-        "'. Expected files like matrix.mtx(.gz), barcodes.tsv(.gz), and features.tsv(.gz).",
+        "'. Expected files like matrix.mtx(.gz), barcodes.tsv(.gz), and ",
+        "features.tsv(.gz).",
         call. = FALSE
     )
 }

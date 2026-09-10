@@ -23,8 +23,8 @@ cell is to its branch.}
 \item{true_onset}{Named numeric vector giving the known onset time of each
 branch. The names must match a subset of the values in \code{branch}.}
 
-\item{activation_threshold}{Minimum activation value required for a cell to be
-treated as branch-committed when estimating the branch onset.}
+\item{activation_threshold}{Minimum activation value required for a cell
+to be treated as branch-committed when estimating the branch onset.}
 }
 \value{
 A list with:

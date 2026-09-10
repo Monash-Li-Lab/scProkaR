@@ -26,9 +26,9 @@ PlotReduction(
 
 \item{point_alpha}{Point alpha.}
 
-\item{palette}{Optional colour palette. For discrete variables, this should be
-a character vector of colours; for continuous variables, it should be a
-gradient vector.}
+\item{palette}{Optional colour palette. For discrete variables, this
+should be a character vector of colours; for continuous variables, it
+should be a gradient vector.}
 
 \item{facet_by}{Optional \code{colData(sce)} column used to facet the plot.}
 

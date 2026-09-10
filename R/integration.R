@@ -50,7 +50,7 @@ IntegrateBacData <- function(
     batch_col,
     method = c("mnn", "harmony"),
     feature_set = c("hvg", "all"),
-    dims = 1:30,
+    dims = seq_len(30),
     assay_name = "counts",
     integrated_name = NULL,
     ...
@@ -320,7 +320,8 @@ RunIntegratedClustering <- function(
     } else {
         if (!is.null(resolution)) {
             warning(
-                "`resolution` is ignored when `algorithm = \"walktrap\"` because walktrap does not expose a resolution parameter.",
+                "`resolution` is ignored when `algorithm = \"walktrap\"` ",
+                "because walktrap does not expose a resolution parameter.",
                 call. = FALSE
             )
         }
@@ -772,7 +773,8 @@ RegisterIntegrationEmbedding <- function(
     }
 
     stop(
-        "Harmony integration failed for this dataset. Try reducing dimensions or using method = \"mnn\".",
+        "Harmony integration failed for this dataset. Try reducing dimensions ",
+        "or using method = \"mnn\".",
         call. = FALSE
     )
 }
@@ -807,7 +809,8 @@ RegisterIntegrationEmbedding <- function(
     }
 
     stop(
-        "No integrated reduction was found. Run IntegrateBacData() and optionally RunIntegratedUMAP(), ",
+        "No integrated reduction was found. Run IntegrateBacData() and ",
+        "optionally RunIntegratedUMAP(), ",
         "or pass `integrated_reduction` explicitly.",
         call. = FALSE
     )

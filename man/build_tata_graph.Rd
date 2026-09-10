@@ -51,8 +51,9 @@ A list containing the directed cluster graph, the cluster edge table,
 and cluster vertex metadata.
 }
 \description{
-Combine topology and temporal consistency into final TATA edge weights, assign
-edge direction, and prune weak edges to obtain the cluster-level TATA graph.
+Combine topology and temporal consistency into final TATA edge weights,
+assign edge direction, and prune weak edges to obtain the cluster-level TATA
+graph.
 }
 \examples{
 set.seed(1)

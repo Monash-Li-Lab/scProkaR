@@ -3,7 +3,9 @@ test_that("RunBacQC computes rRNA fractions", {
     sce <- RunBacQC(sce)
     cd <- as.data.frame(SummarizedExperiment::colData(sce))
 
-    expect_true(all(c("rrna_fraction", "pct_rrna", "ribo_fraction") %in% colnames(cd)))
+    expect_true(
+        all(c("rrna_fraction", "pct_rrna", "ribo_fraction") %in% colnames(cd))
+    )
     expect_equal(cd["cell1", "rrna_counts"], 5)
     expect_equal(cd["cell1", "rrna_fraction"], 5 / cd["cell1", "total_counts"])
 })

@@ -27,10 +27,19 @@ test_that("run_tata returns graph, pseudotime, and plotting outputs", {
     expect_true(inherits(tata$cell_graph, "igraph"))
     expect_true(inherits(tata$cluster_graph, "igraph"))
     expect_true(nrow(tata$cluster_edge_table) > 0)
-    expect_true("tata_pseudotime" %in% colnames(SummarizedExperiment::colData(tata$sce)))
+    expect_true(
+        "tata_pseudotime" %in%
+            colnames(SummarizedExperiment::colData(tata$sce))
+    )
     expect_true(length(tata$terminal_clusters) >= 1)
-    expect_true("tata_branch_entropy" %in% colnames(SummarizedExperiment::colData(tata$sce)))
-    expect_true("tata_branch_assignment" %in% colnames(SummarizedExperiment::colData(tata$sce)))
+    expect_true(
+        "tata_branch_entropy" %in%
+            colnames(SummarizedExperiment::colData(tata$sce))
+    )
+    expect_true(
+        "tata_branch_assignment" %in%
+            colnames(SummarizedExperiment::colData(tata$sce))
+    )
 
     graph_plot <- plot_tata_cluster_graph(
         tata,

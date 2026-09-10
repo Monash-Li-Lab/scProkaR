@@ -21,8 +21,8 @@ BenchmarkIntegration(
 
 \item{label_col}{Optional biological label column for conservation metrics.}
 
-\item{methods}{Optional vector of integration method names or reducedDim names
-to benchmark. When \code{NULL}, all stored integration results are used.}
+\item{methods}{Optional vector of integration method names or reducedDim
+names to benchmark. When \code{NULL}, all stored integration results are used.}
 
 \item{metrics}{Metric names to calculate.}
 

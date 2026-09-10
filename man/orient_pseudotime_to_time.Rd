@@ -23,8 +23,8 @@ orient_pseudotime_to_time(
 }}
 }
 \value{
-A numeric vector scaled to \verb{[0, 1]} and oriented so that larger values
-agree as well as possible with later experimental time.
+A numeric vector scaled to \verb{[0, 1]} and oriented so that larger
+values agree as well as possible with later experimental time.
 }
 \description{
 Flip an inferred pseudotime vector when needed so that it best agrees with

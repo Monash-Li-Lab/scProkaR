@@ -24,7 +24,8 @@ a pair is considered a meaningful forward-time comparison.}
 
 \item{weight_by}{How to weight cluster-pair comparisons. Choices are:
 \itemize{
-\item \code{"cells"}: weight each ordered pair by the product of the two cluster sizes.
+\item \code{"cells"}: weight each ordered pair by the product of the two cluster
+sizes.
 \item \code{"pairs"}: weight every ordered pair equally.
 }}
 }

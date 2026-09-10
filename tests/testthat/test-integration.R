@@ -11,14 +11,19 @@ test_that("IntegrateBacData runs optional backends when installed", {
 
     if (requireNamespace("batchelor", quietly = TRUE)) {
         out <- IntegrateBacData(sce, batch_col = "batch", method = "mnn", dims = 1:2)
-        expect_true("integrated_mnn" %in% SingleCellExperiment::reducedDimNames(out))
+        expect_true(
+            "integrated_mnn" %in% SingleCellExperiment::reducedDimNames(out)
+        )
     } else {
         skip("batchelor not installed")
     }
 
     if (requireNamespace("harmony", quietly = TRUE)) {
         out <- IntegrateBacData(sce, batch_col = "batch", method = "harmony", dims = 1:2)
-        expect_true("integrated_harmony" %in% SingleCellExperiment::reducedDimNames(out))
+        expect_true(
+            "integrated_harmony" %in%
+                SingleCellExperiment::reducedDimNames(out)
+        )
     } else {
         skip("harmony not installed")
     }
@@ -34,7 +39,9 @@ test_that("RegisterIntegrationEmbedding records custom embeddings", {
 
     out <- RegisterIntegrationEmbedding(sce, embedding = embedding, method_name = "custom")
 
-    expect_true("integrated_custom" %in% SingleCellExperiment::reducedDimNames(out))
+    expect_true(
+        "integrated_custom" %in% SingleCellExperiment::reducedDimNames(out)
+    )
     expect_equal(
         S4Vectors::metadata(out)$SCProkaR$integration$results$custom$source,
         "external"
@@ -51,7 +58,11 @@ test_that("PlotReduction returns a ggplot object", {
     sce <- RegisterIntegrationEmbedding(sce, embedding = embedding, method_name = "custom")
 
     expect_s3_class(
-        PlotReduction(sce, reduction = "integrated_custom", colour_by = "batch"),
+        PlotReduction(
+            sce,
+            reduction = "integrated_custom",
+            colour_by = "batch"
+        ),
         "ggplot"
     )
 })
@@ -110,7 +121,10 @@ test_that("RunIntegratedUMAP stores a new UMAP reduction when uwot is available"
     sce <- RegisterIntegrationEmbedding(sce, embedding = embedding, method_name = "custom")
     sce <- RunIntegratedUMAP(sce, reduction = "integrated_custom")
 
-    expect_true("umap_integrated_custom" %in% SingleCellExperiment::reducedDimNames(sce))
+    expect_true(
+        "umap_integrated_custom" %in%
+            SingleCellExperiment::reducedDimNames(sce)
+    )
 })
 
 test_that("RunIntegratedClustering stores cluster labels from an integrated embedding", {
@@ -140,8 +154,13 @@ test_that("RunIntegratedClustering stores cluster labels from an integrated embe
         resolution = 0.8
     )
 
-    expect_true("integrated_clusters" %in% colnames(SummarizedExperiment::colData(sce)))
-    expect_equal(length(SummarizedExperiment::colData(sce)$integrated_clusters), ncol(sce))
+    expect_true(
+        "integrated_clusters" %in% colnames(SummarizedExperiment::colData(sce))
+    )
+    expect_equal(
+        length(SummarizedExperiment::colData(sce)$integrated_clusters),
+        ncol(sce)
+    )
     expect_true(length(unique(SummarizedExperiment::colData(sce)$integrated_clusters)) >= 2)
     expect_equal(
         S4Vectors::metadata(sce)$SCProkaR$integration$clustering$resolution,

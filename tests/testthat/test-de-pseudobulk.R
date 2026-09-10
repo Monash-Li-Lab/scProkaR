@@ -17,7 +17,10 @@ test_that("aggregate_pseudobulk and normalize_pseudobulk create sample-level obj
 
     pb <- normalize_pseudobulk(pb, method = "TMM")
     expect_true("logcounts" %in% SummarizedExperiment::assayNames(pb))
-    expect_true(all(c("lib.size", "norm.factors") %in% colnames(SummarizedExperiment::colData(pb))))
+    expect_true(
+        all(c("lib.size", "norm.factors") %in%
+            colnames(SummarizedExperiment::colData(pb)))
+    )
 })
 
 test_that("filter_pseudobulk_samples removes small pseudobulk samples", {
