@@ -57,7 +57,10 @@ RunBacQC <- function(
 ) {
     counts <- SummarizedExperiment::assay(sce, "counts")
     if (is.null(counts)) {
-        stop("No `counts` assay found. Run CreateBacObject() first.", call. = FALSE)
+        stop(
+            "No `counts` assay found. Run CreateBacObject() first.",
+            call. = FALSE
+        )
     }
 
     row_data <- as.data.frame(SummarizedExperiment::rowData(sce))
@@ -67,11 +70,16 @@ RunBacQC <- function(
 
     if (!is.null(gene_class_col)) {
         if (!gene_class_col %in% colnames(row_data)) {
-            stop("`gene_class_col` was not found in rowData(sce).", call. = FALSE)
+            stop(
+                "`gene_class_col` was not found in rowData(sce).",
+                call. = FALSE
+            )
         }
         classes <- tolower(as.character(row_data[[gene_class_col]]))
         rrna_index <- classes %in% c("rrna", "r_rna", "ribosomal_rna")
-        ribo_index <- classes %in% c("ribo", "ribosomal_protein", "ribo_protein")
+        ribo_index <- classes %in% c(
+            "ribo", "ribosomal_protein", "ribo_protein"
+        )
     }
 
     total_counts <- Matrix::colSums(counts)
@@ -191,7 +199,10 @@ FilterBacCells <- function(
             custom_keep <- custom_filter
         }
         if (!is.logical(custom_keep) || length(custom_keep) != nrow(cd)) {
-            stop("`custom_filter` must resolve to one logical value per cell.", call. = FALSE)
+            stop(
+                "`custom_filter` must resolve to one logical value per cell.",
+                call. = FALSE
+            )
         }
         keep <- keep & custom_keep
     }

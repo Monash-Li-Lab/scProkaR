@@ -84,16 +84,27 @@ run_tata <- function(
     cluster_method <- match.arg(cluster_method)
     time_weight_mode <- match.arg(time_weight_mode)
 
-    if (isTRUE(use_time) && !time_col %in% colnames(SummarizedExperiment::colData(sce))) {
-        stop("Time column `", time_col, "` is not present in colData(sce).", call. = FALSE)
+    if (isTRUE(use_time) &&
+            !time_col %in% colnames(SummarizedExperiment::colData(sce))) {
+        stop(
+            "Time column `", time_col,
+            "` is not present in colData(sce).",
+            call. = FALSE
+        )
     }
 
     if (!is.numeric(alpha) || length(alpha) != 1L || alpha < 0) {
-        stop("`alpha` must be a single non-negative numeric value.", call. = FALSE)
+        stop(
+            "`alpha` must be a single non-negative numeric value.",
+            call. = FALSE
+        )
     }
 
     if (!is.numeric(beta) || length(beta) != 1L || beta < 0) {
-        stop("`beta` must be a single non-negative numeric value.", call. = FALSE)
+        stop(
+            "`beta` must be a single non-negative numeric value.",
+            call. = FALSE
+        )
     }
 
     sce <- .ensure_reduced_dim(sce, dimred = dimred, n_pcs = n_pcs_if_missing)
@@ -140,7 +151,9 @@ run_tata <- function(
         time_table = time_table,
         clusters = inferred_cluster,
         embedding = knn_result$embedding,
-        timepoint = if (isTRUE(use_time)) SummarizedExperiment::colData(sce)[[time_col]] else rep(NA_real_, ncol(sce)),
+        timepoint = if (isTRUE(use_time))
+            SummarizedExperiment::colData(sce)[[time_col]]
+        else rep(NA_real_, ncol(sce)),
         alpha = alpha,
         beta = beta,
         direction_threshold = direction_threshold,
@@ -157,8 +170,10 @@ run_tata <- function(
             root_cluster = root_cluster
         )
 
-        SummarizedExperiment::colData(sce)$tata_pseudotime <- pseudotime_result$cell_pseudotime
-        SummarizedExperiment::colData(sce)$tata_pseudotime_scaled <- pseudotime_result$cell_pseudotime_scaled
+        SummarizedExperiment::colData(sce)$tata_pseudotime <-
+            pseudotime_result$cell_pseudotime
+        SummarizedExperiment::colData(sce)$tata_pseudotime_scaled <-
+            pseudotime_result$cell_pseudotime_scaled
     } else {
         pseudotime_result <- list(
             root_cluster = NULL,
@@ -184,18 +199,25 @@ run_tata <- function(
         )
 
         prob_cols <- branch_result$branch_probability_columns
-        prob_values <- branch_result$branch_probabilities[, prob_cols, drop = FALSE]
+        prob_values <-
+            branch_result$branch_probabilities[, prob_cols, drop = FALSE]
         rownames(prob_values) <- branch_result$branch_probabilities$cell_id
         prob_values <- prob_values[colnames(sce), , drop = FALSE]
 
         for (col_name in prob_cols) {
-            SummarizedExperiment::colData(sce)[[col_name]] <- prob_values[[col_name]]
+            SummarizedExperiment::colData(sce)[[col_name]] <-
+                prob_values[[col_name]]
         }
-        SummarizedExperiment::colData(sce)$tata_branch_entropy <- branch_result$branch_probabilities$tata_branch_entropy
-        SummarizedExperiment::colData(sce)$tata_branch_plasticity <- branch_result$branch_probabilities$tata_branch_plasticity
-        SummarizedExperiment::colData(sce)$tata_branch_commitment <- branch_result$branch_probabilities$tata_branch_commitment
-        SummarizedExperiment::colData(sce)$tata_max_branch_probability <- branch_result$branch_probabilities$tata_max_branch_probability
-        SummarizedExperiment::colData(sce)$tata_branch_assignment <- branch_result$branch_probabilities$tata_branch_assignment
+        SummarizedExperiment::colData(sce)$tata_branch_entropy <-
+            branch_result$branch_probabilities$tata_branch_entropy
+        SummarizedExperiment::colData(sce)$tata_branch_plasticity <-
+            branch_result$branch_probabilities$tata_branch_plasticity
+        SummarizedExperiment::colData(sce)$tata_branch_commitment <-
+            branch_result$branch_probabilities$tata_branch_commitment
+        SummarizedExperiment::colData(sce)$tata_max_branch_probability <-
+            branch_result$branch_probabilities$tata_max_branch_probability
+        SummarizedExperiment::colData(sce)$tata_branch_assignment <-
+            branch_result$branch_probabilities$tata_branch_assignment
     } else {
         branch_result <- list(
             terminal_clusters = NULL,
@@ -243,7 +265,8 @@ run_tata <- function(
         cluster_vertex_table = tata_graph_result$vertex_table,
         cluster_pseudotime = pseudotime_result$cluster_pseudotime,
         terminal_clusters = branch_result$terminal_clusters,
-        cluster_branch_probabilities = branch_result$cluster_branch_probabilities
+        cluster_branch_probabilities =
+            branch_result$cluster_branch_probabilities
     )
 
     list(
@@ -258,7 +281,8 @@ run_tata <- function(
         cell_pseudotime_scaled = pseudotime_result$cell_pseudotime_scaled,
         cell_space = cell_space,
         terminal_clusters = branch_result$terminal_clusters,
-        cluster_branch_probabilities = branch_result$cluster_branch_probabilities,
+        cluster_branch_probabilities =
+            branch_result$cluster_branch_probabilities,
         branch_probabilities = branch_result$branch_probabilities,
         transition_matrix = branch_result$transition_matrix,
         parameters = parameters,

@@ -99,8 +99,13 @@ cluster_graph_states <- function(
         if ("cluster_leiden" %in% getNamespaceExports("igraph")) {
             membership <- igraph::membership(igraph::cluster_leiden(cell_graph))
         } else {
-            warning("`cluster_leiden()` is not available; falling back to Louvain.", call. = FALSE)
-            membership <- igraph::membership(igraph::cluster_louvain(cell_graph))
+            warning(
+                "`cluster_leiden()` is not available; falling back to Louvain.",
+                call. = FALSE
+            )
+            membership <- igraph::membership(
+                igraph::cluster_louvain(cell_graph)
+            )
         }
     } else if (method == "walktrap") {
         membership <- igraph::membership(igraph::cluster_walktrap(cell_graph))

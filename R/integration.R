@@ -83,14 +83,17 @@ IntegrateBacData <- function(
         if (!"k" %in% names(mnn_args)) {
             mnn_args$k <- max(1L, min(20L, min_batch_cells - 1L))
         }
-        if (!"BSPARAM" %in% names(mnn_args) && requireNamespace("BiocSingular", quietly = TRUE)) {
+        if (!"BSPARAM" %in% names(mnn_args) &&
+                requireNamespace("BiocSingular", quietly = TRUE)) {
             mnn_args$BSPARAM <- BiocSingular::ExactParam()
         }
         corrected <- do.call(
             batchelor::fastMNN,
             c(split_sce, list(subset.row = features, d = max(dims)), mnn_args)
         )
-        embedding <- SingleCellExperiment::reducedDim(corrected, "corrected")[, dims, drop = FALSE]
+        embedding <- SingleCellExperiment::reducedDim(
+            corrected, "corrected"
+        )[, dims, drop = FALSE]
         rownames(embedding) <- colnames(corrected)
         embedding <- embedding[colnames(sce), , drop = FALSE]
     } else if (method == "harmony") {
@@ -104,7 +107,9 @@ IntegrateBacData <- function(
     }
 
     rownames(embedding) <- colnames(sce)
-    colnames(embedding) <- paste0(toupper(method), "_", seq_len(ncol(embedding)))
+    colnames(embedding) <- paste0(
+        toupper(method), "_", seq_len(ncol(embedding))
+    )
     SingleCellExperiment::reducedDim(sce, integrated_name) <- embedding
 
     meta <- .scprokar_get_metadata(sce)
@@ -167,10 +172,17 @@ RunIntegratedUMAP <- function(
     reduction_name <- .scprokar_resolve_reduction_name(sce, reduction)
     emb <- as.matrix(SingleCellExperiment::reducedDim(sce, reduction_name))
     if (ncol(emb) < 2) {
-        stop("Reduction '", reduction_name, "' must have at least two columns to run UMAP.", call. = FALSE)
+        stop(
+            "Reduction '", reduction_name,
+            "' must have at least two columns to run UMAP.",
+            call. = FALSE
+        )
     }
     if (nrow(emb) < 3) {
-        stop("Need at least 3 cells to run UMAP on reduction '", reduction_name, "'.", call. = FALSE)
+        stop(
+            "Need at least 3 cells to run UMAP on reduction '",
+            reduction_name, "'.", call. = FALSE
+        )
     }
 
     if (is.null(umap_name)) {
@@ -267,7 +279,11 @@ RunIntegratedClustering <- function(
         stop("Need at least two cells to run clustering.", call. = FALSE)
     }
     if (ncol(emb) < 2L) {
-        stop("Integrated reduction '", reduction_name, "' must have at least two dimensions.", call. = FALSE)
+        stop(
+            "Integrated reduction '", reduction_name,
+            "' must have at least two dimensions.",
+            call. = FALSE
+        )
     }
 
     k <- max(1L, min(as.integer(k), nrow(emb) - 1L))
@@ -291,7 +307,10 @@ RunIntegratedClustering <- function(
             )
         }
         cluster_args <- list(graph, weights = igraph::E(graph)$weight)
-        leiden_formals <- names(formals(get("cluster_leiden", envir = asNamespace("igraph"))))
+        leiden_formals <- names(formals(get(
+            "cluster_leiden",
+            envir = asNamespace("igraph")
+        )))
         if ("resolution_parameter" %in% leiden_formals) {
             cluster_args$resolution_parameter <- resolution
         } else if ("resolution" %in% leiden_formals) {
@@ -305,7 +324,10 @@ RunIntegratedClustering <- function(
                 call. = FALSE
             )
         }
-        igraph::membership(igraph::cluster_walktrap(graph, weights = igraph::E(graph)$weight))
+        igraph::membership(igraph::cluster_walktrap(
+            graph,
+            weights = igraph::E(graph)$weight
+        ))
     }
 
     SummarizedExperiment::colData(sce)[[cluster_col]] <- factor(membership)
@@ -333,9 +355,9 @@ RunIntegratedClustering <- function(
 #' @param colour_by Optional `colData(sce)` column used for colouring points.
 #' @param point_size Point size.
 #' @param point_alpha Point alpha.
-#' @param palette Optional colour palette. For discrete variables, this should be
-#'   a character vector of colours; for continuous variables, it should be a
-#'   gradient vector.
+#' @param palette Optional colour palette. For discrete variables, this
+#'   should be a character vector of colours; for continuous variables, it
+#'   should be a gradient vector.
 #' @param facet_by Optional `colData(sce)` column used to facet the plot.
 #' @param shuffle Whether to shuffle plotting order before drawing points.
 #'
@@ -378,7 +400,11 @@ PlotReduction <- function(
     reduction_name <- .scprokar_resolve_reduction_name(sce, reduction)
     emb <- as.matrix(SingleCellExperiment::reducedDim(sce, reduction_name))
     if (ncol(emb) < 2) {
-        stop("Reduction '", reduction_name, "' must have at least two columns to plot.", call. = FALSE)
+        stop(
+            "Reduction '", reduction_name,
+            "' must have at least two columns to plot.",
+            call. = FALSE
+        )
     }
 
     meta <- as.data.frame(SummarizedExperiment::colData(sce))
@@ -391,7 +417,11 @@ PlotReduction <- function(
 
     if (!is.null(colour_by)) {
         if (!colour_by %in% colnames(plot_df)) {
-            stop("`colour_by` was not found in colData(sce): ", colour_by, call. = FALSE)
+            stop(
+                "`colour_by` was not found in colData(sce): ",
+                colour_by,
+                call. = FALSE
+            )
         }
         plot_df$.colour <- plot_df[[colour_by]]
     } else {
@@ -400,7 +430,11 @@ PlotReduction <- function(
 
     if (!is.null(facet_by)) {
         if (!facet_by %in% colnames(plot_df)) {
-            stop("`facet_by` was not found in colData(sce): ", facet_by, call. = FALSE)
+            stop(
+                "`facet_by` was not found in colData(sce): ",
+                facet_by,
+                call. = FALSE
+            )
         }
         plot_df$.facet <- plot_df[[facet_by]]
     }
@@ -424,18 +458,28 @@ PlotReduction <- function(
         ggplot2::theme_classic()
 
     if (is.null(colour_by)) {
-        plot <- plot + ggplot2::scale_color_manual(values = c(cells = "grey50"), guide = "none")
+        plot <- plot + ggplot2::scale_color_manual(
+            values = c(cells = "grey50"),
+            guide = "none"
+        )
     } else if (is.numeric(plot_df$.colour)) {
         plot <- plot + ggplot2::scale_color_gradientn(
-            colours = if (is.null(palette)) c("#2b8cbe", "#fdbb84", "#d7301f") else palette
+            colours = if (is.null(palette)) c(
+                "#2b8cbe", "#fdbb84", "#d7301f"
+            ) else palette
         )
     } else {
         discrete_values <- unique(as.character(plot_df$.colour))
         colors <- if (is.null(palette)) {
-            stats::setNames(grDevices::hcl.colors(length(discrete_values), "Dark 3"), discrete_values)
+            stats::setNames(
+                grDevices::hcl.colors(length(discrete_values), "Dark 3"),
+                discrete_values
+            )
         } else {
             if (is.null(names(palette))) {
-                names(palette) <- discrete_values[seq_len(min(length(discrete_values), length(palette)))]
+                names(palette) <- discrete_values[seq_len(min(
+                    length(discrete_values), length(palette)
+                ))]
             }
             palette[discrete_values]
         }
@@ -630,7 +674,11 @@ RegisterIntegrationEmbedding <- function(
     if (!is.null(rownames(embedding))) {
         missing_cells <- setdiff(colnames(sce), rownames(embedding))
         if (length(missing_cells) > 0) {
-            stop("`embedding` rownames are missing cells: ", paste(missing_cells, collapse = ", "), call. = FALSE)
+            stop(
+                "`embedding` rownames are missing cells: ",
+                paste(missing_cells, collapse = ", "),
+                call. = FALSE
+            )
         }
         embedding <- embedding[colnames(sce), , drop = FALSE]
     } else {
@@ -803,7 +851,11 @@ RegisterIntegrationEmbedding <- function(
     }
 
     edge_key <- paste(edges$from, edges$to, sep = "_")
-    weights <- stats::aggregate(edges$weight, by = list(edge_key = edge_key), FUN = mean)
+    weights <- stats::aggregate(
+        edges$weight,
+        by = list(edge_key = edge_key),
+        FUN = mean
+    )
     split_key <- strsplit(weights$edge_key, "_", fixed = TRUE)
     edge_df <- data.frame(
         from = as.integer(vapply(split_key, `[`, character(1), 1)),
@@ -811,6 +863,10 @@ RegisterIntegrationEmbedding <- function(
         weight = weights$x
     )
 
-    graph <- igraph::graph_from_data_frame(edge_df, directed = FALSE, vertices = seq_len(n))
+    graph <- igraph::graph_from_data_frame(
+        edge_df,
+        directed = FALSE,
+        vertices = seq_len(n)
+    )
     list(graph = graph, edges = edge_df)
 }

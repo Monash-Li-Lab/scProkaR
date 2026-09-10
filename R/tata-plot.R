@@ -72,7 +72,10 @@ plot_tata_cluster_graph <- function(
     cluster_graph <- tata_result$cluster_graph
 
     if (!inherits(cluster_graph, "igraph")) {
-        stop("`tata_result$cluster_graph` must be an igraph object.", call. = FALSE)
+        stop(
+            "`tata_result$cluster_graph` must be an igraph object.",
+            call. = FALSE
+        )
     }
 
     if (igraph::vcount(cluster_graph) == 0L) {

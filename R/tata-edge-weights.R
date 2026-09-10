@@ -40,7 +40,8 @@ compute_topology_weights <- function(
         dims = c(length(clusters), n_clusters)
     )
 
-    cluster_adjacency <- Matrix::t(membership_matrix) %*% adjacency %*% membership_matrix
+    cluster_adjacency <- Matrix::t(membership_matrix) %*%
+        adjacency %*% membership_matrix
     dimnames(cluster_adjacency) <- list(cluster_levels, cluster_levels)
 
     degree_per_cell <- Matrix::rowSums(adjacency)
@@ -56,7 +57,8 @@ compute_topology_weights <- function(
         cluster_b <- pair_grid[2, idx]
         observed_edges <- as.numeric(cluster_adjacency[cluster_a, cluster_b])
         expected_edges <- if (total_degree > 0) {
-            (degree_by_cluster[[cluster_a]] * degree_by_cluster[[cluster_b]]) / total_degree
+            (degree_by_cluster[[cluster_a]] *
+                degree_by_cluster[[cluster_b]]) / total_degree
         } else {
             0
         }
@@ -155,7 +157,10 @@ compute_time_weights <- function(
                 time_b <- time_numeric[i]
             }
 
-            flow_store[[pair_name]] <- c(flow_store[[pair_name]], time_b - time_a)
+            flow_store[[pair_name]] <- c(
+                flow_store[[pair_name]],
+                time_b - time_a
+            )
         }
     }
 
@@ -165,7 +170,10 @@ compute_time_weights <- function(
         cluster_b <- pair_grid[2, idx]
         pair_name <- paste(cluster_a, cluster_b, sep = "||")
         pair_delta <- flow_store[[pair_name]]
-        cluster_gap <- as.numeric(cluster_median_time[[cluster_b]] - cluster_median_time[[cluster_a]])
+        cluster_gap <- as.numeric(
+            cluster_median_time[[cluster_b]] -
+                cluster_median_time[[cluster_a]]
+        )
         time_overlap <- .time_distribution_overlap(
             cluster_time_list[[cluster_a]],
             cluster_time_list[[cluster_b]]
@@ -186,11 +194,16 @@ compute_time_weights <- function(
             overlap_separation <- 1 - time_overlap
             jump_ratio <- abs(cluster_gap) / pmax(typical_step, 1e-8)
             jump_penalty <- 1 / (1 + pmax(jump_ratio - 2, 0) / 2)
-            direction_source <- if (abs(flow_score) > 1e-8) flow_score else sign(cluster_gap)
-            direction_strength <- max(abs(flow_score), min(1, abs(cluster_gap) / pmax(2 * typical_step, 1e-8)))
+            direction_source <- if (abs(flow_score) > 1e-8)
+                flow_score else sign(cluster_gap)
+            direction_strength <- max(
+                abs(flow_score),
+                min(1, abs(cluster_gap) / pmax(2 * typical_step, 1e-8))
+            )
             time_consistency <- pmin(
                 1,
-                (0.60 * direction_strength + 0.25 * lag_strength + 0.15 * overlap_separation) * jump_penalty
+                (0.60 * direction_strength + 0.25 * lag_strength +
+                    0.15 * overlap_separation) * jump_penalty
             )
             signed_time_score <- sign(direction_source) * time_consistency
             time_weight <- (signed_time_score + 1) / 2
@@ -256,8 +269,9 @@ compute_time_weights <- function(
 
 #' Build the TATA cluster graph
 #'
-#' Combine topology and temporal consistency into final TATA edge weights, assign
-#' edge direction, and prune weak edges to obtain the cluster-level TATA graph.
+#' Combine topology and temporal consistency into final TATA edge weights,
+#' assign edge direction, and prune weak edges to obtain the cluster-level TATA
+#' graph.
 #'
 #' @param topology_table Output from `compute_topology_weights()`.
 #' @param time_table Output from `compute_time_weights()`.
@@ -312,7 +326,10 @@ build_tata_graph <- function(
     time_weight_mode <- match.arg(time_weight_mode)
 
     if (!all(c("cluster_a", "cluster_b") %in% colnames(topology_table))) {
-        stop("`topology_table` is missing required cluster columns.", call. = FALSE)
+        stop(
+            "`topology_table` is missing required cluster columns.",
+            call. = FALSE
+        )
     }
 
     if (!all(c("cluster_a", "cluster_b") %in% colnames(time_table))) {
@@ -351,11 +368,23 @@ build_tata_graph <- function(
     edge_table$direction <- ifelse(
         edge_table$signed_time_score > direction_threshold,
         "a_to_b",
-        ifelse(edge_table$signed_time_score < -direction_threshold, "b_to_a", "ambiguous")
+        ifelse(
+            edge_table$signed_time_score < -direction_threshold,
+            "b_to_a",
+            "ambiguous"
+        )
     )
 
-    edge_table$from <- ifelse(edge_table$direction == "b_to_a", edge_table$cluster_b, edge_table$cluster_a)
-    edge_table$to <- ifelse(edge_table$direction == "b_to_a", edge_table$cluster_a, edge_table$cluster_b)
+    edge_table$from <- ifelse(
+        edge_table$direction == "b_to_a",
+        edge_table$cluster_b,
+        edge_table$cluster_a
+    )
+    edge_table$to <- ifelse(
+        edge_table$direction == "b_to_a",
+        edge_table$cluster_a,
+        edge_table$cluster_b
+    )
     edge_table$direction_label <- ifelse(
         edge_table$direction == "a_to_b",
         paste(edge_table$cluster_a, "->", edge_table$cluster_b),
@@ -373,7 +402,8 @@ build_tata_graph <- function(
     cluster_median_time <- tapply(time_numeric, clusters, stats::median)
     centroid_df <- .compute_cluster_centroids(embedding, clusters)
 
-    edge_table$kept <- edge_table$observed_edges > 0 & edge_table$tata_weight >= prune_threshold
+    edge_table$kept <- edge_table$observed_edges > 0 &
+        edge_table$tata_weight >= prune_threshold
 
     vertex_df <- data.frame(
         cluster = cluster_levels,
@@ -382,8 +412,17 @@ build_tata_graph <- function(
         stringsAsFactors = FALSE
     )
 
-    vertex_df <- merge(vertex_df, centroid_df, by = "cluster", all.x = TRUE, sort = FALSE)
-    vertex_df <- vertex_df[match(cluster_levels, vertex_df$cluster), , drop = FALSE]
+    vertex_df <- merge(
+        vertex_df,
+        centroid_df,
+        by = "cluster",
+        all.x = TRUE,
+        sort = FALSE
+    )
+    vertex_df <- vertex_df[
+        match(cluster_levels, vertex_df$cluster), ,
+        drop = FALSE
+    ]
 
     kept_edges <- edge_table[edge_table$kept, , drop = FALSE]
 

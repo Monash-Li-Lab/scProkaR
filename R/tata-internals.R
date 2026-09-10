@@ -67,7 +67,10 @@
 .get_embedding_matrix <- function(x, dimred = "PCA", dims = NULL) {
     if (methods::is(x, "SingleCellExperiment")) {
         if (!dimred %in% SingleCellExperiment::reducedDimNames(x)) {
-            stop("Reduced dimension `", dimred, "` is not present in `sce`.", call. = FALSE)
+            stop(
+                "Reduced dimension `", dimred, "` is not present in `sce`.",
+                call. = FALSE
+            )
         }
         embedding <- as.matrix(SingleCellExperiment::reducedDim(x, dimred))
         rownames(embedding) <- colnames(x)
@@ -114,7 +117,10 @@
             idx_i <- raw_knn$index[i, keep]
             dist_i <- raw_knn$distance[i, keep]
             if (length(idx_i) < k) {
-                stop("BiocNeighbors did not return enough non-self neighbors.", call. = FALSE)
+                stop(
+                    "BiocNeighbors did not return enough non-self neighbors.",
+                    call. = FALSE
+                )
             }
             nn.index[i, ] <- idx_i[seq_len(k)]
             nn.dist[i, ] <- dist_i[seq_len(k)]
@@ -131,7 +137,10 @@
     diag(distance_matrix) <- Inf
     nn.index <- t(apply(distance_matrix, 1L, order))[, seq_len(k), drop = FALSE]
     nn.dist <- matrix(
-        distance_matrix[cbind(rep(seq_len(n_cells), each = k), as.vector(t(nn.index)))],
+        distance_matrix[cbind(
+            rep(seq_len(n_cells), each = k),
+            as.vector(t(nn.index))
+        )],
         nrow = n_cells,
         ncol = k,
         byrow = TRUE
@@ -258,7 +267,8 @@
 
         ordered_centers <- order(as.numeric(split_fit$centers))
         center_gap <- diff(sort(as.numeric(split_fit$centers)))
-        if (length(center_gap) == 0L || center_gap < min_center_gap * typical_step) {
+        if (length(center_gap) == 0L ||
+                center_gap < min_center_gap * typical_step) {
             next
         }
 
@@ -269,14 +279,23 @@
 
         if (!is.null(embedding)) {
             emb_cluster <- embedding[idx, , drop = FALSE]
-            emb_cluster <- emb_cluster[, seq_len(min(5L, ncol(emb_cluster))), drop = FALSE]
+            emb_cluster <- emb_cluster[, seq_len(
+                min(5L, ncol(emb_cluster))
+            ), drop = FALSE]
             if (ncol(emb_cluster) > 0L) {
                 emb_cluster <- scale(emb_cluster)
                 split_groups <- match(split_fit$cluster, ordered_centers)
-                centroid_1 <- colMeans(emb_cluster[split_groups == 1L, , drop = FALSE], na.rm = TRUE)
-                centroid_2 <- colMeans(emb_cluster[split_groups == 2L, , drop = FALSE], na.rm = TRUE)
+                centroid_1 <- colMeans(
+                    emb_cluster[split_groups == 1L, , drop = FALSE],
+                    na.rm = TRUE
+                )
+                centroid_2 <- colMeans(
+                    emb_cluster[split_groups == 2L, , drop = FALSE],
+                    na.rm = TRUE
+                )
                 embedding_gap <- sqrt(sum((centroid_1 - centroid_2)^2))
-                if (!is.finite(embedding_gap) || embedding_gap < min_embedding_gap) {
+                if (!is.finite(embedding_gap) ||
+                        embedding_gap < min_embedding_gap) {
                     next
                 }
             }
@@ -321,7 +340,8 @@
         for (j in seq_len(ncol(mat))) {
             col_j <- mat[, j]
             finite_j <- col_j[is.finite(col_j)]
-            fill_value <- if (length(finite_j) > 0L) stats::median(finite_j) else 0
+            fill_value <- if (length(finite_j) > 0L)
+                stats::median(finite_j) else 0
             col_j[!is.finite(col_j)] <- fill_value
             sd_j <- stats::sd(col_j)
             if (!is.finite(sd_j) || sd_j <= 0) {
@@ -349,8 +369,11 @@
         )
     }
 
-    if (!is.null(branch_probabilities) && length(branch_probability_columns) > 0L) {
-        prob_mat <- as.matrix(branch_probabilities[, branch_probability_columns, drop = FALSE])
+    if (!is.null(branch_probabilities) &&
+            length(branch_probability_columns) > 0L) {
+        prob_mat <- as.matrix(
+            branch_probabilities[, branch_probability_columns, drop = FALSE]
+        )
         if (!is.numeric(prob_mat)) {
             storage.mode(prob_mat) <- "numeric"
         }

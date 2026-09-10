@@ -53,20 +53,36 @@
         return(factor(values_chr, levels = sort(unique(values_chr))))
     }
 
-    combined <- interaction(meta[, combine_group_cols, drop = FALSE], drop = TRUE, lex.order = TRUE, sep = "__")
+    combined <- interaction(
+        meta[, combine_group_cols, drop = FALSE],
+        drop = TRUE,
+        lex.order = TRUE,
+        sep = "__"
+    )
     factor(as.character(combined), levels = levels(combined))
 }
 
 
-.make_pairwise_pairs <- function(group_levels, contrast_type, reference_level = NULL, manual_pairs = NULL) {
+.make_pairwise_pairs <- function(
+    group_levels,
+    contrast_type,
+    reference_level = NULL,
+    manual_pairs = NULL
+) {
     contrast_type <- match.arg(contrast_type, c("reference", "all", "manual"))
 
     if (contrast_type == "manual") {
         if (is.null(manual_pairs)) {
-            stop("`manual_pairs` must be supplied when `contrast_type = \"manual\"`.", call. = FALSE)
+            stop(
+                "`manual_pairs` must be supplied when `contrast_type = \"manual\"`.",
+                call. = FALSE
+            )
         }
         if (!is.matrix(manual_pairs) && !is.data.frame(manual_pairs)) {
-            stop("`manual_pairs` must be a two-column matrix or data.frame.", call. = FALSE)
+            stop(
+                "`manual_pairs` must be a two-column matrix or data.frame.",
+                call. = FALSE
+            )
         }
         manual_pairs <- as.data.frame(manual_pairs, stringsAsFactors = FALSE)
         if (ncol(manual_pairs) != 2L) {
@@ -81,7 +97,10 @@
             reference_level <- group_levels[1]
         }
         if (!reference_level %in% group_levels) {
-            stop("`reference_level` is not among the group levels.", call. = FALSE)
+            stop(
+                "`reference_level` is not among the group levels.",
+                call. = FALSE
+            )
         }
         out <- data.frame(
             group1 = setdiff(group_levels, reference_level),
@@ -121,12 +140,20 @@
     }
 
     if (!contrast %in% names(de_result$tables)) {
-        stop("Contrast `", contrast, "` is not present in `de_result$tables`.", call. = FALSE)
+        stop(
+            "Contrast `",
+            contrast,
+            "` is not present in `de_result$tables`.",
+            call. = FALSE
+        )
     }
 
     tab <- de_result$tables[[contrast]]
     if (!all(c("gene", "logFC", "FDR") %in% colnames(tab))) {
-        stop("The selected DE table does not contain the required columns.", call. = FALSE)
+        stop(
+            "The selected DE table does not contain the required columns.",
+            call. = FALSE
+        )
     }
 
     tab
@@ -153,7 +180,9 @@
 
 
 .predict_curves_from_spline_result <- function(one_result, genes = NULL) {
-    if (is.null(one_result$fit) || is.null(one_result$curve_design) || !length(one_result$time_grid)) {
+    if (is.null(one_result$fit) ||
+        is.null(one_result$curve_design) ||
+        !length(one_result$time_grid)) {
         return(data.frame())
     }
 
@@ -179,11 +208,17 @@
         stringsAsFactors = FALSE
     )
 
-    sig_lookup <- stats::setNames(one_result$table$significant, one_result$table$gene)
+    sig_lookup <- stats::setNames(
+        one_result$table$significant,
+        one_result$table$gene
+    )
     sig_flag <- sig_lookup[curve_df$gene]
     sig_flag[is.na(sig_flag)] <- FALSE
     curve_df$status <- ifelse(sig_flag, "Sig", "NotSig")
-    curve_df[order(curve_df$gene, curve_df$condition, curve_df$time), , drop = FALSE]
+    curve_df[
+        order(curve_df$gene, curve_df$condition, curve_df$time), ,
+        drop = FALSE
+    ]
 }
 
 
@@ -204,7 +239,8 @@
     }
 
     if (is.null(assay_name)) {
-        assay_name <- if ("logcounts" %in% SummarizedExperiment::assayNames(pb)) {
+        assay_name <- if ("logcounts" %in%
+            SummarizedExperiment::assayNames(pb)) {
             "logcounts"
         } else {
             "counts"
@@ -223,7 +259,9 @@
 
     time_numeric <- .coerce_time_to_numeric(meta[[time_col]])
     condition_values <- as.character(meta[[condition_col]])
-    expr_mat <- as.matrix(SummarizedExperiment::assay(pb, assay_name)[genes, , drop = FALSE])
+    expr_mat <- as.matrix(
+        SummarizedExperiment::assay(pb, assay_name)[genes, , drop = FALSE]
+    )
 
     out <- list()
     out_i <- 0L
@@ -235,7 +273,11 @@
         }
 
         cond_time <- time_numeric[idx_cond]
-        time_grid <- seq(min(cond_time), max(cond_time), length.out = curve_grid_length)
+        time_grid <- seq(
+            min(cond_time),
+            max(cond_time),
+            length.out = curve_grid_length
+        )
 
         for (gene in genes) {
             expr_values <- expr_mat[gene, idx_cond]
@@ -258,7 +300,11 @@
                     rule = 2
                 )$y
             } else {
-                interp_fun <- stats::splinefun(x = summary_df$time, y = summary_df$x, method = "natural")
+                interp_fun <- stats::splinefun(
+                    x = summary_df$time,
+                    y = summary_df$x,
+                    method = "natural"
+                )
                 pred <- interp_fun(time_grid)
             }
 
@@ -302,7 +348,8 @@
 #'   `contrast_type = "reference"`. By default the earliest or first group is
 #'   used.
 #' @param manual_pairs Optional two-column matrix or data frame of manual
-#'   contrasts with `group1` and `group2` values. Each test is `group1 - group2`.
+#'   contrasts with `group1` and `group2` values. Each test is
+#'   `group1 - group2`.
 #' @param normalization Library-size normalization method. Choices are:
 #' - `"TMM"`: edgeR TMM normalization.
 #' - `"upperquartile"`: edgeR upper-quartile normalization.
@@ -370,31 +417,47 @@ run_edger_pairwise_de <- function(
     meta <- as.data.frame(SummarizedExperiment::colData(pb))
     needed_cols <- unique(c(group_col, combine_group_cols, covariates))
     if (!all(needed_cols %in% colnames(meta))) {
-        stop("All grouping and covariate columns must exist in `colData(pb)`.", call. = FALSE)
+        stop(
+            "All grouping and covariate columns must exist in `colData(pb)`.",
+            call. = FALSE
+        )
     }
 
     keep <- stats::complete.cases(meta[, needed_cols, drop = FALSE])
     if (!any(keep)) {
-        stop("No pseudobulk samples have complete values for the requested model.", call. = FALSE)
+        stop(
+            "No pseudobulk samples have complete values for the requested model.",
+            call. = FALSE
+        )
     }
 
     meta <- meta[keep, , drop = FALSE]
     counts <- SummarizedExperiment::assay(pb, assay_name)[, keep, drop = FALSE]
 
-    group_factor <- .build_group_factor(meta, group_col = group_col, combine_group_cols = combine_group_cols)
+    group_factor <- .build_group_factor(
+        meta,
+        group_col = group_col,
+        combine_group_cols = combine_group_cols
+    )
     group_levels <- levels(group_factor)
     if (length(group_levels) < 2L) {
         stop("At least two groups are required for pairwise DE.", call. = FALSE)
     }
 
     if (is.null(reference_level) && contrast_type == "reference") {
-        reference_level <- .make_default_reference(meta[[if (is.null(combine_group_cols)) group_col else combine_group_cols[1]]])
+        reference_level <- .make_default_reference(meta[[
+            if (is.null(combine_group_cols)) group_col
+            else combine_group_cols[1]
+        ]])
         if (!reference_level %in% group_levels) {
             reference_level <- group_levels[1]
         }
     }
 
-    design_df <- data.frame(group_factor = group_factor, stringsAsFactors = FALSE)
+    design_df <- data.frame(
+        group_factor = group_factor,
+        stringsAsFactors = FALSE
+    )
     if (!is.null(covariates) && length(covariates) > 0L) {
         design_df <- cbind(design_df, meta[, covariates, drop = FALSE])
     }
@@ -405,14 +468,27 @@ run_edger_pairwise_de <- function(
     colnames(design)[group_cols] <- paste0("group__", unname(safe_group_levels))
     colnames(design) <- make.names(colnames(design))
 
-    dge <- .prepare_edger_dge(counts = counts, meta = meta, normalization = normalization)
+    dge <- .prepare_edger_dge(
+        counts = counts,
+        meta = meta,
+        normalization = normalization
+    )
     if (isTRUE(filter_by_expr)) {
-        keep_genes <- edgeR::filterByExpr(dge, design = design, group = group_factor)
+        keep_genes <- edgeR::filterByExpr(
+            dge,
+            design = design,
+            group = group_factor
+        )
         dge <- dge[keep_genes, , keep.lib.sizes = FALSE]
     }
 
     dge <- edgeR::estimateDisp(dge, design)
-    fit <- edgeR::glmQLFit(dge, design, robust = robust, abundance.trend = abundance_trend)
+    fit <- edgeR::glmQLFit(
+        dge,
+        design,
+        robust = robust,
+        abundance.trend = abundance_trend
+    )
 
     pair_df <- .make_pairwise_pairs(
         group_levels = group_levels,
@@ -435,13 +511,20 @@ run_edger_pairwise_de <- function(
         g1 <- pair_df$group1[i]
         g2 <- pair_df$group2[i]
         if (!g1 %in% group_levels || !g2 %in% group_levels) {
-            stop("All manual contrast groups must appear in the design.", call. = FALSE)
+            stop(
+                "All manual contrast groups must appear in the design.",
+                call. = FALSE
+            )
         }
 
         contrast_name <- contrast_names[i]
         contrast_vec <- rep(0, ncol(design))
-        contrast_vec[match(paste0("group__", safe_group_levels[[g1]]), colnames(design))] <- 1
-        contrast_vec[match(paste0("group__", safe_group_levels[[g2]]), colnames(design))] <- -1
+        contrast_vec[
+            match(paste0("group__", safe_group_levels[[g1]]), colnames(design))
+        ] <- 1
+        contrast_vec[
+            match(paste0("group__", safe_group_levels[[g2]]), colnames(design))
+        ] <- -1
         contrast_matrix[, i] <- contrast_vec
 
         qlf <- edgeR::glmQLFTest(fit, contrast = contrast_vec)
@@ -558,11 +641,24 @@ plot_pairwise_de_volcano <- function(
     )
     tab$de_class <- factor(tab$de_class, levels = c("Down", "NotSig", "Up"))
 
-    p <- ggplot2::ggplot(tab, ggplot2::aes(x = logFC, y = neg_log10_fdr, colour = de_class)) +
+    p <- ggplot2::ggplot(
+        tab,
+        ggplot2::aes(x = logFC, y = neg_log10_fdr, colour = de_class)
+    ) +
         ggplot2::geom_point(size = point_size, alpha = point_alpha) +
-        ggplot2::geom_vline(xintercept = c(-lfc_cutoff, lfc_cutoff), linetype = 2, colour = "grey60") +
-        ggplot2::geom_hline(yintercept = -log10(fdr_cutoff), linetype = 2, colour = "grey60") +
-        ggplot2::scale_colour_manual(values = c(Down = "#2c7bb6", NotSig = "grey70", Up = "#d7191c")) +
+        ggplot2::geom_vline(
+            xintercept = c(-lfc_cutoff, lfc_cutoff),
+            linetype = 2,
+            colour = "grey60"
+        ) +
+        ggplot2::geom_hline(
+            yintercept = -log10(fdr_cutoff),
+            linetype = 2,
+            colour = "grey60"
+        ) +
+        ggplot2::scale_colour_manual(
+            values = c(Down = "#2c7bb6", NotSig = "grey70", Up = "#d7191c")
+        ) +
         ggplot2::theme_classic() +
         ggplot2::labs(
             title = paste("Volcano plot:", contrast_name),
@@ -573,7 +669,11 @@ plot_pairwise_de_volcano <- function(
 
     top_n_labels <- as.integer(top_n_labels)
     if (!is.na(top_n_labels) && top_n_labels > 0L) {
-        label_df <- tab[order(tab$FDR, -abs(tab$logFC)), c("gene", "logFC", "neg_log10_fdr"), drop = FALSE]
+        label_df <- tab[
+            order(tab$FDR, -abs(tab$logFC)),
+            c("gene", "logFC", "neg_log10_fdr"),
+            drop = FALSE
+        ]
         label_df <- utils::head(label_df, top_n_labels)
         p <- p + ggplot2::geom_text(
             data = label_df,
@@ -639,7 +739,10 @@ plot_pairwise_de_ma <- function(
     contrast_name <- unique(tab$contrast)[1]
 
     if (!"logCPM" %in% colnames(tab)) {
-        stop("The selected DE table does not contain a `logCPM` column for MA plotting.", call. = FALSE)
+        stop(
+            "The selected DE table does not contain a `logCPM` column for MA plotting.",
+            call. = FALSE
+        )
     }
 
     tab$de_class <- ifelse(
@@ -649,10 +752,15 @@ plot_pairwise_de_ma <- function(
     )
     tab$de_class <- factor(tab$de_class, levels = c("Down", "NotSig", "Up"))
 
-    ggplot2::ggplot(tab, ggplot2::aes(x = logCPM, y = logFC, colour = de_class)) +
+    ggplot2::ggplot(
+        tab,
+        ggplot2::aes(x = logCPM, y = logFC, colour = de_class)
+    ) +
         ggplot2::geom_point(size = point_size, alpha = point_alpha) +
         ggplot2::geom_hline(yintercept = 0, linetype = 2, colour = "grey60") +
-        ggplot2::scale_colour_manual(values = c(Down = "#2c7bb6", NotSig = "grey70", Up = "#d7191c")) +
+        ggplot2::scale_colour_manual(
+            values = c(Down = "#2c7bb6", NotSig = "grey70", Up = "#d7191c")
+        ) +
         ggplot2::theme_classic() +
         ggplot2::labs(
             title = paste("MA plot:", contrast_name),
@@ -680,12 +788,18 @@ plot_pairwise_de_ma <- function(
 ) {
     time_numeric <- .coerce_time_to_numeric(meta[[time_col]])
     if (length(unique(time_numeric)) < 3L) {
-        stop("Spline DE requires at least three distinct time values.", call. = FALSE)
+        stop(
+            "Spline DE requires at least three distinct time values.",
+            call. = FALSE
+        )
     }
 
     effective_df <- min(as.integer(df), length(unique(time_numeric)) - 1L)
     if (effective_df < 1L) {
-        stop("Spline DE requires at least one estimable spline degree of freedom.", call. = FALSE)
+        stop(
+            "Spline DE requires at least one estimable spline degree of freedom.",
+            call. = FALSE
+        )
     }
 
     spline_basis <- splines::ns(time_numeric, df = effective_df)
@@ -696,18 +810,29 @@ plot_pairwise_de_ma <- function(
     if (!is.null(covariates) && length(covariates) > 0L) {
         design_df <- cbind(design_df, meta[, covariates, drop = FALSE])
     }
-    design_formula <- stats::as.formula(paste("~", paste(colnames(design_df), collapse = " + ")))
+    design_formula <- stats::as.formula(
+        paste("~", paste(colnames(design_df), collapse = " + "))
+    )
     design <- stats::model.matrix(design_formula, data = design_df)
     design <- as.matrix(design)
 
-    dge <- .prepare_edger_dge(counts = counts, meta = meta, normalization = normalization)
+    dge <- .prepare_edger_dge(
+        counts = counts,
+        meta = meta,
+        normalization = normalization
+    )
     if (isTRUE(filter_by_expr)) {
         keep_genes <- edgeR::filterByExpr(dge, design = design)
         dge <- dge[keep_genes, , keep.lib.sizes = FALSE]
     }
 
     dge <- edgeR::estimateDisp(dge, design)
-    fit <- edgeR::glmQLFit(dge, design, robust = robust, abundance.trend = abundance_trend)
+    fit <- edgeR::glmQLFit(
+        dge,
+        design,
+        robust = robust,
+        abundance.trend = abundance_trend
+    )
     spline_coef <- seq_len(ncol(spline_df)) + 1L
     qlf <- edgeR::glmQLFTest(fit, coef = spline_coef)
 
@@ -722,7 +847,11 @@ plot_pairwise_de_ma <- function(
         curve_genes <- tab$gene
     }
 
-    time_grid <- seq(min(time_numeric), max(time_numeric), length.out = curve_grid_length)
+    time_grid <- seq(
+        min(time_numeric),
+        max(time_numeric),
+        length.out = curve_grid_length
+    )
     new_basis <- as.data.frame(stats::predict(spline_basis, newx = time_grid))
     colnames(new_basis) <- colnames(spline_df)
 
@@ -734,7 +863,10 @@ plot_pairwise_de_ma <- function(
             } else {
                 mode_value <- .most_frequent_value(meta[[cov_name]])
                 if (is.factor(meta[[cov_name]])) {
-                    template[[cov_name]] <- factor(rep(mode_value, curve_grid_length), levels = levels(meta[[cov_name]]))
+                    template[[cov_name]] <- factor(
+                        rep(mode_value, curve_grid_length),
+                        levels = levels(meta[[cov_name]])
+                    )
                 } else {
                     template[[cov_name]] <- rep(mode_value, curve_grid_length)
                 }
@@ -761,8 +893,15 @@ plot_pairwise_de_ma <- function(
             condition = label,
             stringsAsFactors = FALSE
         )
-        curve_df$status <- ifelse(curve_df$gene %in% tab$gene[tab$significant], "Sig", "NotSig")
-        curve_df <- curve_df[order(curve_df$gene, curve_df$condition, curve_df$time), , drop = FALSE]
+        curve_df$status <- ifelse(
+            curve_df$gene %in% tab$gene[tab$significant],
+            "Sig",
+            "NotSig"
+        )
+        curve_df <- curve_df[
+            order(curve_df$gene, curve_df$condition, curve_df$time), ,
+            drop = FALSE
+        ]
     }
 
     list(
@@ -787,8 +926,8 @@ plot_pairwise_de_ma <- function(
 #'
 #' @param pb A pseudobulk `SingleCellExperiment`.
 #' @param time_col Sample metadata column containing numeric or ordered time.
-#' @param condition_col Optional sample metadata column defining conditions to be
-#'   analysed separately, for example treatment.
+#' @param condition_col Optional sample metadata column defining conditions
+#'   to be analysed separately, for example treatment.
 #' @param covariates Optional additive covariates to include in each
 #'   condition-specific model.
 #' @param assay_name Assay containing pseudobulk counts.
@@ -870,12 +1009,18 @@ run_edger_spline_de <- function(
     meta <- as.data.frame(SummarizedExperiment::colData(pb))
     needed_cols <- unique(c(time_col, condition_col, covariates))
     if (!all(needed_cols %in% colnames(meta))) {
-        stop("All requested time, condition, and covariate columns must exist in `colData(pb)`.", call. = FALSE)
+        stop(
+            "All requested time, condition, and covariate columns must exist in `colData(pb)`.",
+            call. = FALSE
+        )
     }
 
     keep <- stats::complete.cases(meta[, needed_cols, drop = FALSE])
     if (!any(keep)) {
-        stop("No pseudobulk samples have complete values for the requested model.", call. = FALSE)
+        stop(
+            "No pseudobulk samples have complete values for the requested model.",
+            call. = FALSE
+        )
     }
 
     meta <- meta[keep, , drop = FALSE]
@@ -949,14 +1094,20 @@ run_edger_spline_de <- function(
 
     res_list <- Filter(Negate(is.null), res_list)
     if (!length(res_list)) {
-        stop("No condition had enough pseudobulk samples for spline DE.", call. = FALSE)
+        stop(
+            "No condition had enough pseudobulk samples for spline DE.",
+            call. = FALSE
+        )
     }
 
-    if (!is.null(condition_col) && nzchar(condition_col) && condition_col != "condition") {
+    if (!is.null(condition_col) && nzchar(condition_col) &&
+        condition_col != "condition") {
         for (i in seq_along(res_list)) {
-            res_list[[i]]$table[[condition_col]] <- res_list[[i]]$table$condition
+            res_list[[i]]$table[[condition_col]] <-
+                res_list[[i]]$table$condition
             if (nrow(res_list[[i]]$curve_data) > 0L) {
-                res_list[[i]]$curve_data[[condition_col]] <- res_list[[i]]$curve_data$condition
+                res_list[[i]]$curve_data[[condition_col]] <-
+                    res_list[[i]]$curve_data$condition
             }
         }
     }
@@ -1064,13 +1215,23 @@ plot_time_series_deg_curves <- function(
         } else {
             character(0)
         }
-        fallback_keys <- paste(fallback_df$gene, fallback_df$condition, sep = "||")
-        fallback_df <- fallback_df[!fallback_keys %in% existing_keys, , drop = FALSE]
+        fallback_keys <- paste(
+            fallback_df$gene,
+            fallback_df$condition,
+            sep = "||"
+        )
+        fallback_df <- fallback_df[
+            !fallback_keys %in% existing_keys, ,
+            drop = FALSE
+        ]
         curve_df <- .rbind_fill_data_frames(list(curve_df, fallback_df))
     }
 
     if (!nrow(curve_df)) {
-        stop("No fitted spline curves are available for the requested genes.", call. = FALSE)
+        stop(
+            "No fitted spline curves are available for the requested genes.",
+            call. = FALSE
+        )
     }
 
     if (!is.null(spline_result$settings$condition_col) &&
@@ -1098,7 +1259,9 @@ plot_time_series_deg_curves <- function(
         )
     ) +
         ggplot2::geom_line(linewidth = 0.9) +
-        ggplot2::scale_linetype_manual(values = c(Sig = "solid", NotSig = "dotted")) +
+        ggplot2::scale_linetype_manual(
+            values = c(Sig = "solid", NotSig = "dotted")
+        ) +
         ggplot2::facet_wrap(~gene, scales = scales, ncol = ncol) +
         ggplot2::theme_classic() +
         ggplot2::labs(
@@ -1197,9 +1360,19 @@ run_scproka_de <- function(
     )
 
     de_result <- if (mode == "pairwise") {
-        run_edger_pairwise_de(pb, assay_name = "counts", normalization = normalization, ...)
+        run_edger_pairwise_de(
+            pb,
+            assay_name = "counts",
+            normalization = normalization,
+            ...
+        )
     } else {
-        run_edger_spline_de(pb, assay_name = "counts", normalization = normalization, ...)
+        run_edger_spline_de(
+            pb,
+            assay_name = "counts",
+            normalization = normalization,
+            ...
+        )
     }
 
     list(

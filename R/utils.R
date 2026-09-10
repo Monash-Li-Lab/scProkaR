@@ -94,7 +94,11 @@ NULL
     }
     missing_ids <- setdiff(ids, rownames(x))
     if (length(missing_ids) > 0) {
-        stop("`", what, "` is missing identifiers: ", paste(missing_ids, collapse = ", "), call. = FALSE)
+        stop(
+            "`", what, "` is missing identifiers: ",
+            paste(missing_ids, collapse = ", "),
+            call. = FALSE
+        )
     }
     x[ids, , drop = FALSE]
 }
@@ -180,19 +184,28 @@ NULL
 }
 
 #' @keywords internal
-.scprokar_normalize_logcounts <- function(sce, assay_name = "counts", scale_factor = 1e4) {
+.scprokar_normalize_logcounts <- function(
+    sce,
+    assay_name = "counts",
+    scale_factor = 1e4
+) {
     counts <- SummarizedExperiment::assay(sce, assay_name)
     libsize <- Matrix::colSums(counts)
     scaling <- scale_factor / pmax(libsize, 1)
     norm <- counts %*% Matrix::Diagonal(x = scaling)
     lognorm <- .scprokar_as_dgC(log1p(norm))
     dimnames(lognorm) <- dimnames(counts)
-    SummarizedExperiment::assay(sce, "logcounts", withDimnames = FALSE) <- lognorm
+    SummarizedExperiment::assay(sce, "logcounts", withDimnames = FALSE) <-
+        lognorm
     sce
 }
 
 #' @keywords internal
-.scprokar_select_features <- function(sce, feature_set = c("hvg", "all"), nfeatures = 2000) {
+.scprokar_select_features <- function(
+    sce,
+    feature_set = c("hvg", "all"),
+    nfeatures = 2000
+) {
     feature_set <- match.arg(feature_set)
     if (feature_set == "all") {
         return(rownames(sce))
@@ -234,7 +247,9 @@ NULL
     ncomponents = 30,
     reduction_name = "PCA"
 ) {
-    mat <- SummarizedExperiment::assay(sce, assay_name)[features, , drop = FALSE]
+    mat <- SummarizedExperiment::assay(
+        sce, assay_name
+    )[features, , drop = FALSE]
     x_sparse <- Matrix::t(.scprokar_as_dgC(mat))
     rank_k <- min(ncomponents, max(1, ncol(x_sparse) - 1))
     full_rank <- min(nrow(x_sparse), ncol(x_sparse))
@@ -266,7 +281,12 @@ NULL
         x_dense <- as.matrix(x_sparse)
         x_dense <- scale(x_dense, center = TRUE, scale = TRUE)
         x_dense[is.na(x_dense)] <- 0
-        pcs <- stats::prcomp(x_dense, rank. = rank_k, center = FALSE, scale. = FALSE)
+        pcs <- stats::prcomp(
+            x_dense,
+            rank. = rank_k,
+            center = FALSE,
+            scale. = FALSE
+        )
     }
 
     emb <- pcs$x
@@ -288,7 +308,9 @@ NULL
         sce <- .scprokar_normalize_logcounts(sce, assay_name = assay_name)
     }
     if (!reduction_name %in% SingleCellExperiment::reducedDimNames(sce) ||
-        max(dims) > ncol(SingleCellExperiment::reducedDim(sce, reduction_name))) {
+        max(dims) > ncol(
+            SingleCellExperiment::reducedDim(sce, reduction_name)
+        )) {
         features <- .scprokar_select_features(sce, feature_set = feature_set)
         sce <- .scprokar_run_pca(
             sce,
@@ -447,7 +469,8 @@ NULL
     for (i in seq_len(nrow(joint))) {
         for (j in seq_len(ncol(joint))) {
             if (joint[i, j] > 0) {
-                mutual_info <- mutual_info + joint[i, j] * log(joint[i, j] / (px[i] * py[j]))
+                mutual_info <- mutual_info +
+                    joint[i, j] * log(joint[i, j] / (px[i] * py[j]))
             }
         }
     }

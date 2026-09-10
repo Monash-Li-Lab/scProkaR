@@ -19,6 +19,7 @@ Description: SCProkaR provides a SingleCellExperiment-centred workflow for
     time-informed trajectory abstraction for perturbation time courses.
 License: MIT + file LICENSE
 Encoding: UTF-8
+Language: en-GB
 Depends:
     R (>= 4.5.0)
 Imports:

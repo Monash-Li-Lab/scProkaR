@@ -72,27 +72,45 @@ aggregate_pseudobulk <- function(
         stop("Assay `", assay_name, "` is not present in `sce`.", call. = FALSE)
     }
 
-    if (length(sample_cols) == 0L || !all(sample_cols %in% colnames(SummarizedExperiment::colData(sce)))) {
-        stop("`sample_cols` must all be present in `colData(sce)`.", call. = FALSE)
+    if (length(sample_cols) == 0L ||
+        !all(sample_cols %in%
+            colnames(SummarizedExperiment::colData(sce)))) {
+        stop(
+            "`sample_cols` must all be present in `colData(sce)`.",
+            call. = FALSE
+        )
     }
 
     meta <- as.data.frame(SummarizedExperiment::colData(sce))
     keep_cells <- stats::complete.cases(meta[, sample_cols, drop = FALSE])
     if (!any(keep_cells)) {
-        stop("No cells have complete values across `sample_cols`.", call. = FALSE)
+        stop(
+            "No cells have complete values across `sample_cols`.",
+            call. = FALSE
+        )
     }
 
     meta <- meta[keep_cells, , drop = FALSE]
-    counts <- SummarizedExperiment::assay(sce, assay_name)[, keep_cells, drop = FALSE]
+    counts <- SummarizedExperiment::assay(
+        sce, assay_name
+    )[, keep_cells, drop = FALSE]
 
     group_df <- meta[, sample_cols, drop = FALSE]
-    group_factor <- interaction(group_df, drop = TRUE, lex.order = TRUE, sep = "||")
+    group_factor <- interaction(
+        group_df,
+        drop = TRUE,
+        lex.order = TRUE,
+        sep = "||"
+    )
     group_levels <- levels(group_factor)
     ncells <- as.integer(table(group_factor))
     keep_groups <- ncells >= as.integer(min_cells)
 
     if (!any(keep_groups)) {
-        stop("No pseudobulk samples remain after applying `min_cells`.", call. = FALSE)
+        stop(
+            "No pseudobulk samples remain after applying `min_cells`.",
+            call. = FALSE
+        )
     }
 
     membership <- Matrix::sparseMatrix(
@@ -111,8 +129,14 @@ aggregate_pseudobulk <- function(
     ncells <- ncells[keep_groups]
     kept_levels <- group_levels[keep_groups]
 
-    sample_meta <- unique(data.frame(.group = as.character(group_factor), group_df, stringsAsFactors = FALSE))
-    sample_meta <- sample_meta[match(kept_levels, sample_meta$.group), , drop = FALSE]
+    sample_meta <- unique(data.frame(
+        .group = as.character(group_factor),
+        group_df,
+        stringsAsFactors = FALSE
+    ))
+    sample_meta <- sample_meta[
+        match(kept_levels, sample_meta$.group), , drop = FALSE
+    ]
     rownames(sample_meta) <- paste0(sample_prefix, seq_len(nrow(sample_meta)))
     sample_meta$.group <- NULL
     sample_meta$ncells <- ncells

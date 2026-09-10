@@ -11,8 +11,8 @@
 #' - `"kendall"`: more conservative rank correlation.
 #' - `"pearson"`: linear correlation on the scaled values.
 #'
-#' @return A numeric vector scaled to `[0, 1]` and oriented so that larger values
-#'   agree as well as possible with later experimental time.
+#' @return A numeric vector scaled to `[0, 1]` and oriented so that larger
+#'   values agree as well as possible with later experimental time.
 #' @export
 #'
 #' @examples
@@ -48,7 +48,8 @@ orient_pseudotime_to_time <- function(
     }
 
     forward <- .scale_to_unit(pseudotime[ok])
-    flipped_values <- max(pseudotime[ok], na.rm = TRUE) + min(pseudotime[ok], na.rm = TRUE) - pseudotime[ok]
+    flipped_values <- max(pseudotime[ok], na.rm = TRUE) +
+        min(pseudotime[ok], na.rm = TRUE) - pseudotime[ok]
     flipped <- .scale_to_unit(flipped_values)
     truth <- .scale_to_unit(time_numeric[ok])
 
@@ -262,7 +263,11 @@ adjacent_timepoint_auc <- function(
     pair_idx <- 0L
 
     for (group_name in unique(group)) {
-        idx_group <- which(group == group_name & is.finite(pseudotime) & is.finite(time_numeric))
+        idx_group <- which(
+            group == group_name &
+                is.finite(pseudotime) &
+                is.finite(time_numeric)
+        )
         if (length(idx_group) == 0L) {
             next
         }
@@ -273,7 +278,8 @@ adjacent_timepoint_auc <- function(
             idx_earlier <- idx_group[time_numeric[idx_group] == earlier]
             idx_later <- idx_group[time_numeric[idx_group] == later]
 
-            if (length(idx_earlier) < min_cells || length(idx_later) < min_cells) {
+            if (length(idx_earlier) < min_cells ||
+                    length(idx_later) < min_cells) {
                 next
             }
 
@@ -351,8 +357,8 @@ adjacent_timepoint_auc <- function(
 #'   cell is to its branch.
 #' @param true_onset Named numeric vector giving the known onset time of each
 #'   branch. The names must match a subset of the values in `branch`.
-#' @param activation_threshold Minimum activation value required for a cell to be
-#'   treated as branch-committed when estimating the branch onset.
+#' @param activation_threshold Minimum activation value required for a cell
+#'   to be treated as branch-committed when estimating the branch onset.
 #'
 #' @return A list with:
 #' - `summary`: a one-row `data.frame` containing Kendall tau, Spearman rho,
@@ -418,11 +424,15 @@ branch_onset_metrics <- function(
         idx <- which(keep & branch == branch_names[i])
         onset_table$n_committed_cells[i] <- length(idx)
         if (length(idx) > 0L) {
-            onset_table$inferred_onset[i] <- stats::median(pseudotime[idx], na.rm = TRUE)
+            onset_table$inferred_onset[i] <- stats::median(
+                pseudotime[idx],
+                na.rm = TRUE
+            )
         }
     }
 
-    valid <- is.finite(onset_table$true_onset) & is.finite(onset_table$inferred_onset)
+    valid <- is.finite(onset_table$true_onset) &
+        is.finite(onset_table$inferred_onset)
     if (sum(valid) < 2L) {
         summary_df <- data.frame(
             n_branches_used = sum(valid),
@@ -481,7 +491,8 @@ branch_onset_metrics <- function(
 #' @param min_time_gap Minimum difference in median cluster time required before
 #'   a pair is considered a meaningful forward-time comparison.
 #' @param weight_by How to weight cluster-pair comparisons. Choices are:
-#' - `"cells"`: weight each ordered pair by the product of the two cluster sizes.
+#' - `"cells"`: weight each ordered pair by the product of the two cluster
+#'   sizes.
 #' - `"pairs"`: weight every ordered pair equally.
 #'
 #' @return A list with:
@@ -535,7 +546,8 @@ directed_reachability_concordance <- function(
                 next
             }
 
-            time_gap <- cluster_median_time[[cluster_b]] - cluster_median_time[[cluster_a]]
+            time_gap <- cluster_median_time[[cluster_b]] -
+                cluster_median_time[[cluster_a]]
             if (!is.finite(time_gap) || time_gap <= min_time_gap) {
                 next
             }
@@ -553,7 +565,8 @@ directed_reachability_concordance <- function(
                 mode = "out"
             )[1, 1])
 
-            reachability_score <- if (forward_reachable && !backward_reachable) {
+            reachability_score <- if (forward_reachable &&
+                    !backward_reachable) {
                 1
             } else if (forward_reachable && backward_reachable) {
                 0.5
@@ -723,7 +736,10 @@ anticausal_edge_mass <- function(
     )
 
     total_weight <- sum(edge_df[[weight_attr]], na.rm = TRUE)
-    anticausal_mass <- sum(edge_df[[weight_attr]][edge_df$temporal_class == "anticausal"], na.rm = TRUE)
+    anticausal_mass <- sum(
+        edge_df[[weight_attr]][edge_df$temporal_class == "anticausal"],
+        na.rm = TRUE
+    )
 
     out_edge_table <- data.frame(
         from = edge_df$from,
@@ -740,8 +756,12 @@ anticausal_edge_mass <- function(
         summary = data.frame(
             total_edge_weight = total_weight,
             anticausal_edge_mass = anticausal_mass,
-            anticausal_edge_mass_fraction = if (total_weight > 0) anticausal_mass / total_weight else NA_real_,
-            causal_edge_score = if (total_weight > 0) 1 - (anticausal_mass / total_weight) else NA_real_,
+            anticausal_edge_mass_fraction =
+                if (total_weight > 0) anticausal_mass / total_weight
+                else NA_real_,
+            causal_edge_score =
+                if (total_weight > 0) 1 - (anticausal_mass / total_weight)
+                else NA_real_,
             stringsAsFactors = FALSE
         ),
         edge_table = out_edge_table
