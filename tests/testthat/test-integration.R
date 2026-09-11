@@ -167,3 +167,44 @@ test_that("RunIntegratedClustering stores cluster labels from an integrated embe
         0.8
     )
 })
+
+test_that("RunIntegratedClustering leiden respects resolution", {
+    skip_if_not_installed("igraph")
+    skip_if_not(
+        "cluster_leiden" %in% getNamespaceExports("igraph"),
+        "igraph does not provide cluster_leiden()"
+    )
+
+    sce <- make_toy_multidrug_sce(n_cells = 900, n_features = 70, seed = 42)
+    embedding <- SingleCellExperiment::reducedDim(sce, "PCA")
+    sce <- RegisterIntegrationEmbedding(
+        sce,
+        embedding = embedding,
+        method_name = "custom"
+    )
+
+    cluster_count <- function(resolution) {
+        set.seed(42)
+        out <- RunIntegratedClustering(
+            sce,
+            reduction = "integrated_custom",
+            cluster_col = "leiden_clusters",
+            algorithm = "leiden",
+            k = 20,
+            resolution = resolution
+        )
+        nlevels(factor(
+            SummarizedExperiment::colData(out)$leiden_clusters
+        ))
+    }
+
+    coarse <- cluster_count(0.4)
+    fine <- cluster_count(1.6)
+
+    ## Regression guard: with the CPM objective this returned hundreds of
+    ## singleton clusters and ignored the resolution entirely.
+    expect_lt(coarse, ncol(sce) / 10)
+    expect_lt(fine, ncol(sce) / 10)
+    expect_gt(coarse, 1)
+    expect_gt(fine, coarse)
+})

@@ -165,3 +165,32 @@ test_that("expected_branches guides TATA terminal-state selection", {
 
     expect_equal(length(tata$terminal_clusters), 3)
 })
+
+test_that("leiden clustering groups cells rather than isolating them", {
+    skip_if_not_installed("igraph")
+    skip_if_not(
+        "cluster_leiden" %in% getNamespaceExports("igraph"),
+        "igraph does not provide cluster_leiden()"
+    )
+
+    sce <- make_toy_multidrug_sce(n_cells = 900, n_features = 70, seed = 41)
+    knn <- build_knn_graph(sce, dimred = "PCA", k = 20)
+
+    set.seed(41)
+    leiden_clusters <- cluster_graph_states(knn$graph, method = "leiden")
+    set.seed(41)
+    louvain_clusters <- cluster_graph_states(knn$graph, method = "louvain")
+
+    n_leiden <- nlevels(factor(leiden_clusters))
+    n_louvain <- nlevels(factor(louvain_clusters))
+
+    ## Regression guard: cluster_leiden() defaults to the CPM objective, which
+    ## puts every cell in its own community on an unweighted kNN graph.
+    expect_length(leiden_clusters, ncol(sce))
+    expect_lt(n_leiden, ncol(sce) / 10)
+    expect_gt(n_leiden, 1)
+
+    ## Leiden and Louvain optimise the same objective, so they should land in
+    ## the same ballpark rather than differing by orders of magnitude.
+    expect_lt(n_leiden, 5 * n_louvain)
+})

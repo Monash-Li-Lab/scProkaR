@@ -97,7 +97,14 @@ cluster_graph_states <- function(
         membership <- rep(1L, igraph::vcount(cell_graph))
     } else if (method == "leiden") {
         if ("cluster_leiden" %in% getNamespaceExports("igraph")) {
-            membership <- igraph::membership(igraph::cluster_leiden(cell_graph))
+            ## `cluster_leiden()` defaults to the CPM objective, which on an
+            ## unweighted kNN graph places every cell in its own community.
+            ## Optimise modularity instead, so that Leiden is comparable with
+            ## the Louvain and walktrap branches below.
+            membership <- igraph::membership(igraph::cluster_leiden(
+                cell_graph,
+                objective_function = "modularity"
+            ))
         } else {
             warning(
                 "`cluster_leiden()` is not available; falling back to Louvain.",

@@ -306,15 +306,25 @@ RunIntegratedClustering <- function(
                 call. = FALSE
             )
         }
-        cluster_args <- list(graph, weights = igraph::E(graph)$weight)
+        ## `cluster_leiden()` defaults to the CPM objective, whose resolution
+        ## is on a different scale from Louvain's and which over-partitions a
+        ## kNN graph badly. Optimise modularity so that `resolution` means the
+        ## same thing here as it does for `algorithm = "louvain"`.
+        cluster_args <- list(
+            graph,
+            weights = igraph::E(graph)$weight,
+            objective_function = "modularity"
+        )
         leiden_formals <- names(formals(get(
             "cluster_leiden",
             envir = asNamespace("igraph")
         )))
-        if ("resolution_parameter" %in% leiden_formals) {
-            cluster_args$resolution_parameter <- resolution
-        } else if ("resolution" %in% leiden_formals) {
+        ## igraph 2.1.0 renamed `resolution_parameter` to `resolution` and
+        ## deprecated the old name, so prefer the current spelling.
+        if ("resolution" %in% leiden_formals) {
             cluster_args$resolution <- resolution
+        } else if ("resolution_parameter" %in% leiden_formals) {
+            cluster_args$resolution_parameter <- resolution
         }
         igraph::membership(do.call(igraph::cluster_leiden, cluster_args))
     } else {
