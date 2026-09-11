@@ -398,18 +398,28 @@ NULL
         }
     }
 
-    integrated_reductions <- grep("^integrated_", available, value = TRUE)
-    registered_reductions <- unname(unlist(mapping, use.names = FALSE))
-    for (reduction_name in integrated_reductions) {
+    ## Aliases inferred from an `integrated_*` name that was never registered.
+    ## They are a convenience, so they rank BELOW an exact reduced-dimension
+    ## name: asking for a reduction by its own name must never silently score
+    ## a different one.
+    discovered <- list()
+    registered <- mapping
+    registered_reductions <- unname(unlist(registered, use.names = FALSE))
+    for (reduction_name in grep("^integrated_", available, value = TRUE)) {
         if (reduction_name %in% registered_reductions) {
             next
         }
         method_name <- .scprokar_infer_integration_method_name(reduction_name)
-        if (!nzchar(method_name) || !is.null(mapping[[method_name]])) {
+        if (!nzchar(method_name) || !is.null(registered[[method_name]]) ||
+                !is.null(discovered[[method_name]])) {
             method_name <- reduction_name
         }
-        mapping[[method_name]] <- reduction_name
+        discovered[[method_name]] <- reduction_name
     }
+    mapping <- c(
+        registered,
+        discovered[setdiff(names(discovered), names(registered))]
+    )
 
     if (is.null(methods)) {
         if (length(mapping) > 0) {
@@ -423,10 +433,12 @@ NULL
 
     out <- list()
     for (item in methods) {
-        if (!is.null(mapping[[item]])) {
-            out[[item]] <- mapping[[item]]
+        if (!is.null(registered[[item]])) {
+            out[[item]] <- registered[[item]]
         } else if (item %in% available) {
             out[[item]] <- item
+        } else if (!is.null(discovered[[item]])) {
+            out[[item]] <- discovered[[item]]
         } else if (tolower(item) %in% tolower(names(mapping))) {
             matched <- names(mapping)[match(
                 tolower(item), tolower(names(mapping))

@@ -193,3 +193,102 @@ test_that("exact reduction names take precedence over case-folded methods", {
     expect_identical(.scprokar_reduction_lookup(sce, "pca"),
         list(pca = "integrated_pca"))
 })
+
+test_that("an exact reducedDim name outranks an auto-discovered alias", {
+    set.seed(1)
+    sce <- simulate_tata_multidrug_sce(
+        n_cells = 300, n_features = 60, n_pcs = 10
+    )
+    pca <- SingleCellExperiment::reducedDim(sce, "PCA")
+
+    ## A reduction literally named "mnn" alongside a different, unregistered
+    ## "integrated_mnn". Asking for "mnn" must score the one named "mnn".
+    SingleCellExperiment::reducedDim(sce, "mnn") <- pca[, seq_len(4)]
+    SingleCellExperiment::reducedDim(sce, "integrated_mnn") <- pca[, 5:8]
+
+    lookup <- .scprokar_reduction_lookup(sce, methods = "mnn")
+
+    expect_identical(unname(unlist(lookup)), "mnn")
+})
+
+test_that("a registered method name still resolves to its reduction", {
+    set.seed(1)
+    sce <- simulate_tata_multidrug_sce(
+        n_cells = 300, n_features = 60, n_pcs = 10
+    )
+    pca <- SingleCellExperiment::reducedDim(sce, "PCA")
+    sce <- RegisterIntegrationEmbedding(
+        sce, pca[, seq_len(4)],
+        method_name = "mnn"
+    )
+
+    lookup <- .scprokar_reduction_lookup(sce, methods = "mnn")
+
+    expect_identical(unname(unlist(lookup)), "integrated_mnn")
+})
+
+test_that("auto-detection leaves scProkaR's own provenance intact", {
+    set.seed(1)
+    sce <- simulate_tata_multidrug_sce(
+        n_cells = 300, n_features = 60, n_pcs = 10
+    )
+    pca <- SingleCellExperiment::reducedDim(sce, "PCA")
+    sce <- RegisterIntegrationEmbedding(
+        sce, pca[, seq_len(4)],
+        method_name = "mnn",
+        metadata = list(batch_col = "condition", feature_set = "hvg")
+    )
+    SingleCellExperiment::reducedDim(sce, "X_scVI") <- pca[, seq_len(3)]
+
+    out <- RegisterExistingIntegrationEmbeddings(sce)
+    record <- S4Vectors::metadata(out)$scProkaR$integration$results$mnn
+
+    ## The registry entry written by the earlier registration survives.
+    expect_identical(record$batch_col, "condition")
+    expect_identical(record$feature_set, "hvg")
+    expect_true("scvi" %in% names(
+        S4Vectors::metadata(out)$scProkaR$integration$results
+    ))
+})
+
+test_that("auto-detection is idempotent", {
+    set.seed(1)
+    sce <- simulate_tata_multidrug_sce(
+        n_cells = 300, n_features = 60, n_pcs = 10
+    )
+    pca <- SingleCellExperiment::reducedDim(sce, "PCA")
+    SingleCellExperiment::reducedDim(sce, "X_scVI") <- pca[, seq_len(3)]
+
+    once <- RegisterExistingIntegrationEmbeddings(sce)
+
+    expect_error(RegisterExistingIntegrationEmbeddings(once), NA)
+})
+
+test_that("visualisation layouts are not mistaken for latent spaces", {
+    detected <- .scprokar_guess_external_integration_reductions(c(
+        "X_pca", "X_umap", "X_tsne", "X_diffmap", "X_draw_graph_fa",
+        "X_phate", "X_densmap", "harmony_umap",
+        "X_scVI", "seurat_cca", "scanorama_latent"
+    ))
+
+    expect_setequal(detected, c("X_scVI", "seurat_cca", "scanorama_latent"))
+})
+
+test_that("metadata keys beginning with source are not promoted", {
+    set.seed(1)
+    sce <- simulate_tata_multidrug_sce(
+        n_cells = 300, n_features = 60, n_pcs = 10
+    )
+    pca <- SingleCellExperiment::reducedDim(sce, "PCA")
+
+    out <- RegisterIntegrationEmbedding(
+        sce, pca[, seq_len(3)],
+        method_name = "m1",
+        metadata = list(source_file = "scvi.h5ad")
+    )
+    record <- S4Vectors::metadata(out)$scProkaR$integration$results$m1
+
+    ## `$` partial matching would have promoted source_file into source.
+    expect_identical(record$source, "external")
+    expect_identical(record$source_file, "scvi.h5ad")
+})
