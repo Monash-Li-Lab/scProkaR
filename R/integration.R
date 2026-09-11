@@ -667,8 +667,14 @@ RegisterIntegrationEmbedding <- function(
     }
 
     SingleCellExperiment::reducedDim(sce, reduction_name) <- embedding
-    source <- if (!is.null(metadata$source)) metadata$source else "external"
-    metadata$source <- NULL
+    ## Use [[ ]] rather than $: $ partial-matches, so a user key such as
+    ## `source_file` would silently be promoted into the source field.
+    embedding_source <- if (!is.null(metadata[["source"]])) {
+        metadata[["source"]]
+    } else {
+        "external"
+    }
+    metadata[["source"]] <- NULL
 
     meta <- .scprokar_get_metadata(sce)
     if (is.null(meta$integration)) {
@@ -677,7 +683,7 @@ RegisterIntegrationEmbedding <- function(
     meta$integration$results[[method_name]] <- c(
         list(
             reduction = reduction_name,
-            source = source,
+            source = embedding_source,
             dims = seq_len(ncol(embedding))
         ),
         metadata
@@ -743,6 +749,12 @@ RegisterExistingIntegrationEmbeddings <- function(
     if (is.null(reductions)) {
         reductions <- .scprokar_guess_external_integration_reductions(
             available
+        )
+        ## Never re-register a reduction scProkaR already owns. Doing so would
+        ## replace the provenance recorded by IntegrateBacData(), which knows
+        ## the batch column and feature set, with a generic external record.
+        reductions <- setdiff(
+            reductions, .scprokar_registered_reductions(sce)
         )
         if (length(reductions) == 0L) {
             stop(
@@ -814,10 +826,12 @@ RegisterExistingIntegrationEmbeddings <- function(
 #' @keywords internal
 .scprokar_guess_external_integration_reductions <- function(reduction_names) {
     lower <- tolower(reduction_names)
+    ## Require a recognisable tool name. A bare "^x_" would match every
+    ## AnnData reduction, including plain visualisation layouts.
     include <- grepl(
         paste(
             c(
-                "^integrated_", "^x_", "cca", "rpca", "scanorama", "scvi",
+                "^integrated_", "cca", "rpca", "scanorama", "scvi",
                 "scgen", "scalex", "bbknn", "combat", "regress", "liger",
                 "harmony", "mnn"
             ),
@@ -825,10 +839,18 @@ RegisterExistingIntegrationEmbeddings <- function(
         ),
         lower
     )
-    exclude <- lower %in% c(
-        "pca", "x_pca", "umap", "x_umap", "tsne", "x_tsne", "fdl", "x_fdl",
-        "diffmap", "x_diffmap", "diffusion", "truth"
-    ) | grepl("^(x_)?(umap|tsne|fdl)_", lower)
+    ## Visualisation layouts are never latent spaces, wherever the token sits
+    ## in the name: "harmony_umap" is a picture of an embedding, not one.
+    exclude <- grepl(
+        paste(
+            c(
+                "umap", "tsne", "t_sne", "fdl", "draw_graph", "phate",
+                "densmap", "diffmap", "diffusion", "force"
+            ),
+            collapse = "|"
+        ),
+        lower
+    ) | lower %in% c("pca", "x_pca", "truth")
     reduction_names[include & !exclude]
 }
 
@@ -1109,4 +1131,31 @@ RegisterExistingIntegrationEmbeddings <- function(
         palette[discrete_values]
     }
     ggplot2::scale_color_manual(values = colors)
+}
+
+#' Reductions already recorded in the scProkaR integration registry
+#'
+#' @param sce A `SingleCellExperiment`.
+#'
+#' @return A character vector of reduced-dimension names, possibly empty.
+#' @keywords internal
+#' @noRd
+.scprokar_registered_reductions <- function(sce) {
+    results <- .scprokar_get_metadata(sce)$integration$results
+    if (!is.list(results) || length(results) == 0L) {
+        return(character(0))
+    }
+    found <- vapply(
+        results,
+        function(entry) {
+            reduction <- entry[["reduction"]]
+            if (is.character(reduction) && length(reduction) == 1L) {
+                reduction
+            } else {
+                NA_character_
+            }
+        },
+        character(1)
+    )
+    unname(found[!is.na(found)])
 }
