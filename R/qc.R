@@ -82,22 +82,7 @@ RunBacQC <- function(
         )
     }
 
-    total_counts <- Matrix::colSums(counts)
-    detected_features <- Matrix::colSums(counts > 0)
-    rrna_stats <- .scprokar_fraction_from_features(counts, rrna_index)
-    ribo_stats <- .scprokar_fraction_from_features(counts, ribo_index)
-
-    qc_df <- data.frame(
-        total_counts = as.numeric(total_counts),
-        detected_features = as.numeric(detected_features),
-        rrna_counts = rrna_stats$selected,
-        rrna_fraction = rrna_stats$fraction,
-        pct_rrna = rrna_stats$fraction * 100,
-        ribo_counts = ribo_stats$selected,
-        ribo_fraction = ribo_stats$fraction,
-        pct_ribo = ribo_stats$fraction * 100,
-        row.names = colnames(sce)
-    )
+    qc_df <- .scprokar_per_cell_qc(sce, rrna_index, ribo_index)
 
     if (!isTRUE(store)) {
         return(qc_df)
@@ -218,5 +203,63 @@ FilterBacCells <- function(
             kept_cells = sum(keep),
             removed_cells = sum(!keep)
         )
+    )
+}
+
+#' Per-cell quality-control metrics
+#'
+#' Counts library size, detected features, and the share of counts falling on
+#' the rRNA and ribosomal-protein feature sets. The work is delegated to
+#' `scuttle::perCellQCMetrics()`, which errors on objects with fewer than two
+#' cells, so a single-cell object takes an equivalent direct path instead.
+#'
+#' @param sce A `SingleCellExperiment` with a `counts` assay.
+#' @param rrna_index,ribo_index Logical vectors over `rownames(sce)`.
+#'
+#' @return A data frame of QC metrics, one row per cell.
+#' @keywords internal
+#' @noRd
+.scprokar_per_cell_qc <- function(sce, rrna_index, ribo_index) {
+    counts <- SummarizedExperiment::assay(sce, "counts")
+
+    if (ncol(sce) >= 2L) {
+        qc <- scuttle::perCellQCMetrics(
+            sce,
+            assay.type = "counts",
+            subsets = list(rrna = which(rrna_index), ribo = which(ribo_index))
+        )
+        totals <- as.numeric(qc$sum)
+        detected <- as.numeric(qc$detected)
+        rrna_counts <- as.numeric(qc$subsets_rrna_sum)
+        ribo_counts <- as.numeric(qc$subsets_ribo_sum)
+    } else {
+        totals <- as.numeric(Matrix::colSums(counts))
+        detected <- as.numeric(Matrix::colSums(counts > 0))
+        subset_sum <- function(index) {
+            if (!any(index)) {
+                return(rep(0, ncol(counts)))
+            }
+            as.numeric(Matrix::colSums(counts[index, , drop = FALSE]))
+        }
+        rrna_counts <- subset_sum(rrna_index)
+        ribo_counts <- subset_sum(ribo_index)
+    }
+
+    ## A cell with an empty library has no meaningful share; report 0 rather
+    ## than the NaN that dividing by zero would give.
+    share <- function(selected) selected / pmax(totals, 1)
+    rrna_fraction <- share(rrna_counts)
+    ribo_fraction <- share(ribo_counts)
+
+    data.frame(
+        total_counts = totals,
+        detected_features = detected,
+        rrna_counts = rrna_counts,
+        rrna_fraction = rrna_fraction,
+        pct_rrna = rrna_fraction * 100,
+        ribo_counts = ribo_counts,
+        ribo_fraction = ribo_fraction,
+        pct_ribo = ribo_fraction * 100,
+        row.names = colnames(sce)
     )
 }

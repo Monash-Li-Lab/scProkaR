@@ -173,22 +173,6 @@ NULL
 }
 
 #' @keywords internal
-.scprokar_fraction_from_features <- function(counts, feature_index) {
-    totals <- Matrix::colSums(counts)
-    selected <- if (any(feature_index)) {
-        Matrix::colSums(counts[feature_index, , drop = FALSE])
-    } else {
-        rep(0, ncol(counts))
-    }
-    fraction <- as.numeric(selected / pmax(totals, 1))
-    list(
-        totals = as.numeric(totals),
-        selected = as.numeric(selected),
-        fraction = fraction
-    )
-}
-
-#' @keywords internal
 .scprokar_normalize_logcounts <- function(
     sce,
     assay_name = "counts",
@@ -438,22 +422,17 @@ NULL
 .scprokar_adjusted_rand_index <- function(x, y) {
     x <- as.factor(x)
     y <- as.factor(y)
-    tab <- table(x, y)
-    n <- sum(tab)
-    if (n <= 1) {
+    if (length(x) <= 1L) {
         return(NA_real_)
     }
-    choose2 <- function(v) v * (v - 1) / 2
-    sum_ij <- sum(choose2(tab))
-    sum_i <- sum(choose2(rowSums(tab)))
-    sum_j <- sum(choose2(colSums(tab)))
-    expected <- sum_i * sum_j / choose2(n)
-    max_index <- (sum_i + sum_j) / 2
-    denom <- max_index - expected
-    if (isTRUE(all.equal(denom, 0))) {
+    ## Delegate to bluster rather than carrying our own implementation of a
+    ## standard statistic. Verified to agree to machine precision with the
+    ## previous hand-written version.
+    ari <- bluster::pairwiseRand(x, y, mode = "index", adjusted = TRUE)
+    if (!is.finite(ari)) {
         return(NA_real_)
     }
-    (sum_ij - expected) / denom
+    as.numeric(ari)
 }
 
 #' @keywords internal

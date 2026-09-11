@@ -23,6 +23,7 @@ Language: en-GB
 Depends:
     R (>= 4.5.0)
 Imports:
+    bluster,
     edgeR,
     ggplot2,
     grDevices,
@@ -31,6 +32,7 @@ Imports:
     Matrix,
     methods,
     S4Vectors,
+    scuttle,
     SingleCellExperiment,
     splines,
     stats,
