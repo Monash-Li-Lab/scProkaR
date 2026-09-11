@@ -30,7 +30,7 @@ otherwise falls back to \verb{integrated_*}.}
 \item{label_col}{Optional biological label column in \code{colData(sce)}.}
 
 \item{split_by}{Optional metadata column used to facet the integrated plot.
-This is the \code{SCProkaR} equivalent of Seurat's \code{split.by}.}
+This is the \code{scProkaR} equivalent of Seurat's \code{split.by}.}
 
 \item{point_size}{Point size passed to \code{\link[=PlotReduction]{PlotReduction()}}.}
 

@@ -1,4 +1,4 @@
-#' Internal utilities for SCProkaR
+#' Internal utilities for scProkaR
 #'
 #' Helper functions used across object creation, integration, benchmarking, and
 #' downstream analysis.
@@ -27,7 +27,7 @@ NULL
 #' @keywords internal
 .scprokar_package_version <- function() {
     desc <- tryCatch(
-        utils::packageDescription("SCProkaR"),
+        utils::packageDescription("scProkaR"),
         warning = function(w) NULL,
         error = function(e) NULL
     )
@@ -35,7 +35,7 @@ NULL
         return(as.character(desc$Version))
     }
 
-    desc_file <- system.file("DESCRIPTION", package = "SCProkaR")
+    desc_file <- system.file("DESCRIPTION", package = "scProkaR")
     if (!nzchar(desc_file) || !file.exists(desc_file)) {
         desc_file <- file.path(getwd(), "DESCRIPTION")
     }
@@ -110,7 +110,7 @@ NULL
 
 #' @keywords internal
 .scprokar_get_metadata <- function(sce) {
-    meta <- S4Vectors::metadata(sce)$SCProkaR
+    meta <- S4Vectors::metadata(sce)$scProkaR
     if (is.null(meta)) {
         meta <- list()
     }
@@ -120,7 +120,7 @@ NULL
 #' @keywords internal
 .scprokar_set_metadata <- function(sce, meta) {
     all_meta <- S4Vectors::metadata(sce)
-    all_meta$SCProkaR <- meta
+    all_meta$scProkaR <- meta
     S4Vectors::metadata(sce) <- all_meta
     sce
 }

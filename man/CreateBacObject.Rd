@@ -45,7 +45,7 @@ gene.}
 
 \item{feature_name_col}{Optional \code{rowData} column to use as the primary
 feature name when \code{x} is a \code{SingleCellExperiment} or 10x-derived object.
-If \code{NULL}, SCProkaR will prefer common columns such as \code{Symbol},
+If \code{NULL}, scProkaR will prefer common columns such as \code{Symbol},
 \code{gene_name}, or \code{feature_name} when available. For 10x-derived input,
 \code{Symbol} is preferred by default when present.}
 
@@ -112,7 +112,7 @@ clustering. Higher values typically produce more clusters.}
 workflow.
 
 For Cell Ranger / 10x input, users can pass the directory path directly.
-SCProkaR will import the matrix, standardize cell metadata, and by default
+scProkaR will import the matrix, standardize cell metadata, and by default
 use \code{rowData(sce)$Symbol} as the feature name column when that column is
 available. Set \code{feature_name_col} explicitly to override this behavior.}
 }
@@ -122,7 +122,7 @@ A standardized \code{SingleCellExperiment}.
 \description{
 \code{CreateBacObject()} standardizes raw microbial single-cell counts into a
 \code{SingleCellExperiment}, aligns cell and feature metadata, and records package
-provenance used by downstream SCProkaR workflows.
+provenance used by downstream scProkaR workflows.
 }
 \examples{
 set.seed(1)
@@ -153,5 +153,5 @@ sce <- CreateBacObject(
 )
 sce
 table(sce$sample_id, sce$time)
-S4Vectors::metadata(sce)$SCProkaR$organism
+S4Vectors::metadata(sce)$scProkaR$organism
 }

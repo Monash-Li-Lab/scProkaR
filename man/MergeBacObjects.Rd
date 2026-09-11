@@ -2,7 +2,7 @@
 % Please edit documentation in R/create_object.R
 \name{MergeBacObjects}
 \alias{MergeBacObjects}
-\title{Merge multiple SCProkaR or SingleCellExperiment objects}
+\title{Merge multiple scProkaR or SingleCellExperiment objects}
 \usage{
 MergeBacObjects(..., objects = NULL, gene_mode = c("intersect", "union"))
 }

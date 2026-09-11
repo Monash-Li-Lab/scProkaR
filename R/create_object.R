@@ -2,7 +2,7 @@
 #'
 #' `CreateBacObject()` standardizes raw microbial single-cell counts into a
 #' `SingleCellExperiment`, aligns cell and feature metadata, and records package
-#' provenance used by downstream SCProkaR workflows.
+#' provenance used by downstream scProkaR workflows.
 #'
 #' @param x A gene-by-cell count matrix, a `SingleCellExperiment`, or a loaded
 #'   Seurat object from an `.rds` file, or a Cell Ranger output directory.
@@ -12,7 +12,7 @@
 #'   gene.
 #' @param feature_name_col Optional `rowData` column to use as the primary
 #'   feature name when `x` is a `SingleCellExperiment` or 10x-derived object.
-#'   If `NULL`, SCProkaR will prefer common columns such as `Symbol`,
+#'   If `NULL`, scProkaR will prefer common columns such as `Symbol`,
 #'   `gene_name`, or `feature_name` when available. For 10x-derived input,
 #'   `Symbol` is preferred by default when present.
 #' @param sample_col Optional sample identifier column in `cell_metadata`.
@@ -60,7 +60,7 @@
 #'
 #'
 #' For Cell Ranger / 10x input, users can pass the directory path directly.
-#' SCProkaR will import the matrix, standardize cell metadata, and by default
+#' scProkaR will import the matrix, standardize cell metadata, and by default
 #' use `rowData(sce)$Symbol` as the feature name column when that column is
 #' available. Set `feature_name_col` explicitly to override this behavior.
 #'
@@ -95,7 +95,7 @@
 #' )
 #' sce
 #' table(sce$sample_id, sce$time)
-#' S4Vectors::metadata(sce)$SCProkaR$organism
+#' S4Vectors::metadata(sce)$scProkaR$organism
 CreateBacObject <- function(
     x,
     counts_assay = "counts",
@@ -221,7 +221,7 @@ CreateBacObject <- function(
     out
 }
 
-#' Merge multiple SCProkaR or SingleCellExperiment objects
+#' Merge multiple scProkaR or SingleCellExperiment objects
 #'
 #' `MergeBacObjects()` combines multiple per-sample `SingleCellExperiment`
 #' objects without relying on external `cbind()` method dispatch. This is useful
@@ -1042,7 +1042,7 @@ MergeBacObjects <- function(
     sce
 }
 
-#' Record SCProkaR provenance metadata on a newly created object
+#' Record scProkaR provenance metadata on a newly created object
 #'
 #' @keywords internal
 #' @noRd
@@ -1057,7 +1057,7 @@ MergeBacObjects <- function(
     tenx_info = NULL
 ) {
     meta <- .scprokar_get_metadata(sce)
-    meta$package <- "SCProkaR"
+    meta$package <- "scProkaR"
     meta$version <- .scprokar_package_version()
     meta$created <- as.character(Sys.time())
     meta$organism <- organism

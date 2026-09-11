@@ -29,8 +29,8 @@ A \code{SingleCellExperiment} with the external embedding registered.
 }
 \description{
 Adds a precomputed embedding to \code{reducedDims(sce)} and records it in
-\code{metadata(sce)$SCProkaR$integration}, allowing custom integration outputs to
-be benchmarked alongside native SCProkaR methods.
+\code{metadata(sce)$scProkaR$integration}, allowing custom integration outputs to
+be benchmarked alongside native scProkaR methods.
 }
 \examples{
 set.seed(1)
@@ -47,6 +47,6 @@ sce <- RegisterIntegrationEmbedding(
     metadata = list(software = "external_tool", version = "1.0")
 )
 print(SingleCellExperiment::reducedDimNames(sce))
-record <- S4Vectors::metadata(sce)$SCProkaR$integration$results
+record <- S4Vectors::metadata(sce)$scProkaR$integration$results
 print(record$my_method)
 }

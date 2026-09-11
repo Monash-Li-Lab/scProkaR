@@ -1,12 +1,12 @@
 ---
-title: "Time Aware Trajectory Analysis (TATA) with SCProkaR"
+title: "Time Aware Trajectory Analysis (TATA) with scProkaR"
 author:
 - name: Ning Liu
   affiliation: University of Adelaide
 - name: Jinxin Zhao
   affiliation: Monash University
 date: "`r Sys.Date()`"
-package: SCProkaR
+package: scProkaR
 output:
   BiocStyle::html_document:
     toc: true
@@ -14,7 +14,7 @@ output:
     toc_depth: 2
 abstract: |
   Time Aware Trajectory Analysis (TATA) is the trajectory component of
-  SCProkaR. It abstracts a microbial single-cell dataset into a graph of
+  scProkaR. It abstracts a microbial single-cell dataset into a graph of
   cell states and uses the experimental sampling times of a perturbation
   time course, rather than topology alone, to score, orient and prune the
   transitions between those states. This vignette builds a simulated
@@ -43,7 +43,7 @@ knitr::opts_chunk$set(
 
 # Introduction
 
-`r BiocStyle::Biocpkg("SCProkaR")` is a `SingleCellExperiment`-centred
+`r BiocStyle::Biocpkg("scProkaR")` is a `SingleCellExperiment`-centred
 workflow for microbial (prokaryotic) single-cell RNA sequencing data. It
 standardises bacterial input objects, computes prokaryote-specific quality
 control metrics such as ribosomal RNA fraction, integrates batches, scores
@@ -86,7 +86,7 @@ that is anchored to real experimental time.
 
 ## Relationship to Bioconductor single-cell infrastructure
 
-Every object in SCProkaR is a
+Every object in scProkaR is a
 `r BiocStyle::Biocpkg("SingleCellExperiment")`, so TATA is a drop-in step in
 an ordinary Bioconductor workflow rather than a parallel universe:
 
@@ -115,13 +115,13 @@ direction with measured experimental time.
 ```{r install, eval = FALSE}
 if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
-BiocManager::install("SCProkaR")
+BiocManager::install("scProkaR")
 ```
 
 # Setting up
 
 ```{r load-packages, message = FALSE}
-library(SCProkaR)
+library(scProkaR)
 library(SingleCellExperiment)
 library(SummarizedExperiment)
 ```
@@ -588,7 +588,7 @@ tata_topology <- run_tata(
 
 ## Benchmarking helpers
 
-SCProkaR exports five metrics for scoring a trajectory against known
+scProkaR exports five metrics for scoring a trajectory against known
 experimental time. All of them are sign-conventional, so before scoring we
 orient pseudotime with `orient_pseudotime_to_time()`; otherwise a trajectory
 that is perfectly correct but inferred backwards would score near zero for

@@ -1,19 +1,19 @@
 ---
-title: "SCProkaR core workflow for microbial single-cell RNA-seq"
+title: "scProkaR core workflow for microbial single-cell RNA-seq"
 author:
 - name: Ning Liu
   affiliation: University of Adelaide
 - name: Jinxin Zhao
   affiliation: Monash University
 date: "`r Sys.Date()`"
-package: SCProkaR
+package: scProkaR
 output:
   BiocStyle::html_document:
     toc: true
     toc_float: true
     toc_depth: 2
 abstract: |
-  This vignette walks through the end-to-end SCProkaR workflow on a bacterial
+  This vignette walks through the end-to-end scProkaR workflow on a bacterial
   single-cell RNA-seq time course of cells exposed to polymyxin B at two
   concentrations. It covers object construction, prokaryote-specific quality
   control, batch integration and benchmarking, clustering and visualisation,
@@ -21,7 +21,7 @@ abstract: |
   a SingleCellExperiment, so the workflow composes with the rest of
   Bioconductor.
 vignette: >
-  %\VignetteIndexEntry{1. SCProkaR core workflow}
+  %\VignetteIndexEntry{1. scProkaR core workflow}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -40,7 +40,7 @@ knitr::opts_chunk$set(
 
 # Introduction
 
-`SCProkaR` is a workflow package for **microbial** single-cell
+`scProkaR` is a workflow package for **microbial** single-cell
 RNA sequencing. Bacterial scRNA-seq differs from mammalian scRNA-seq in ways
 that break the usual assumptions of general-purpose single-cell tooling:
 libraries are one to two orders of magnitude sparser (a few hundred UMIs per
@@ -54,7 +54,7 @@ several doses and sampled at several timepoints -- so the analytical question is
 usually "how does the population reorganise over time under treatment", not
 "which cell types are present".
 
-SCProkaR addresses those specifics while staying inside the Bioconductor
+scProkaR addresses those specifics while staying inside the Bioconductor
 single-cell ecosystem rather than beside it. Concretely, the package provides:
 
 * `CreateBacObject()`, a single entry point that accepts a count matrix, a
@@ -74,16 +74,16 @@ single-cell ecosystem rather than beside it. Concretely, the package provides:
 * Time Aware Trajectory Analysis (TATA), covered in a separate vignette.
 
 **Relationship to existing Bioconductor infrastructure.** Every object that
-SCProkaR creates, modifies, or returns is a
+scProkaR creates, modifies, or returns is a
 `r Biocpkg("SingleCellExperiment")`. Counts live in the `counts` assay,
 log-normalised values in `logcounts`, cell annotation in `colData()`,
-embeddings in `reducedDims()`, and provenance for each SCProkaR step in
-`metadata(sce)$SCProkaR`. Nothing is hidden in a bespoke class. That means you
-can hand a SCProkaR object straight to `r Biocpkg("scater")` for plotting and
+embeddings in `reducedDims()`, and provenance for each scProkaR step in
+`metadata(sce)$scProkaR`. Nothing is hidden in a bespoke class. That means you
+can hand a scProkaR object straight to `r Biocpkg("scater")` for plotting and
 per-cell QC, to `r Biocpkg("scran")` for variance modelling, marker detection
 or graph-based clustering, or to `r Biocpkg("batchelor")` for any correction
 method the package does not wrap; and equally you can hand any
-`SingleCellExperiment` produced elsewhere to SCProkaR. SCProkaR itself uses
+`SingleCellExperiment` produced elsewhere to scProkaR. scProkaR itself uses
 `r Biocpkg("scran")` for feature selection when it is installed, delegates MNN
 correction to `r Biocpkg("batchelor")`, and delegates the differential-testing
 statistics to `r Biocpkg("edgeR")`. The package is a bacteria-aware layer over
@@ -94,11 +94,11 @@ that infrastructure, not a replacement for it.
 ```{r install, eval = FALSE}
 if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
-BiocManager::install("SCProkaR")
+BiocManager::install("scProkaR")
 ```
 
 ```{r load-packages}
-library(SCProkaR)
+library(scProkaR)
 library(SingleCellExperiment)
 library(ggplot2)
 ```
@@ -111,7 +111,7 @@ two concentrations and sampled over time. See `inst/scripts/make-sce1.R` for the
 provenance of this object.
 
 ```{r load-data}
-data("sce1", package = "SCProkaR")
+data("sce1", package = "scProkaR")
 sce1
 ```
 
@@ -167,12 +167,12 @@ sce_small <- sce1[, sort(keep_cells)]
 dim(sce_small)
 ```
 
-# Creating a SCProkaR object
+# Creating a scProkaR object
 
 `CreateBacObject()` is the entry point. Here we drive it from a raw count
 matrix plus a per-cell metadata `data.frame`, which is the most general case;
 the `sample_col`, `batch_col`, `condition_col` and `time_col` arguments simply
-tell SCProkaR which existing metadata columns carry those roles.
+tell scProkaR which existing metadata columns carry those roles.
 
 Setting `run_unintegrated = TRUE` also runs the standard uncorrected
 first-pass: log-normalisation, feature selection, PCA, graph-based clustering,
@@ -206,7 +206,7 @@ recorded in its metadata:
 
 ```{r inspect-object}
 reducedDimNames(sce)
-names(S4Vectors::metadata(sce)$SCProkaR)
+names(S4Vectors::metadata(sce)$scProkaR)
 ```
 
 ## Other entry points
@@ -216,7 +216,7 @@ Two further input types are accepted by the same function.
 **10x Genomics directories.** Pass the path to a CellRanger output folder
 (the one containing `matrix.mtx.gz`, `barcodes.tsv.gz` and `features.tsv.gz`,
 whether or not it is nested inside `filtered_feature_bc_matrix/`) and
-SCProkaR reads it directly, using `r Biocpkg("DropletUtils")` when that
+scProkaR reads it directly, using `r Biocpkg("DropletUtils")` when that
 package is available and falling back to `r CRANpkg("Matrix")` otherwise:
 
 ```{r tenx-entry-point}
@@ -257,7 +257,7 @@ if (requireNamespace("SeuratObject", quietly = TRUE)) {
 
 The `Layer 'data' is empty` warning above is expected and harmless: the
 conversion also looks for a normalised layer to carry over as `logcounts`, and
-this demonstration object only has raw counts. SCProkaR normalises for itself
+this demonstration object only has raw counts. scProkaR normalises for itself
 when it needs to.
 
 Whichever door you come in through, the object you get back is a
@@ -395,14 +395,14 @@ if (requireNamespace("harmony", quietly = TRUE)) {
 ```
 
 Each backend writes its embedding to `reducedDims()` under
-`integrated_<method>` and records the call in `metadata(sce)$SCProkaR`.
+`integrated_<method>` and records the call in `metadata(sce)$scProkaR`.
 
 ## Registering your own embedding
 
 `RegisterIntegrationEmbedding()` is the always-available path: it takes any
-cell-by-dimension matrix you computed yourself -- from a method SCProkaR does
+cell-by-dimension matrix you computed yourself -- from a method scProkaR does
 not wrap, from a variational autoencoder, from a collaborator -- and registers
-it so that every downstream SCProkaR function treats it like a native
+it so that every downstream scProkaR function treats it like a native
 integration result. It depends on nothing beyond the package's own imports.
 
 Here we register a deliberately simple correction: per-batch centring of the
@@ -677,7 +677,7 @@ removal but preserves the drug-response structure is the right choice.
 # Pseudobulk differential expression
 
 Per-cell differential testing is poorly calibrated when cells from the same
-sample are treated as independent replicates. SCProkaR therefore takes the
+sample are treated as independent replicates. scProkaR therefore takes the
 pseudobulk route: sum counts within each biological replicate, then test the
 resulting sample-level matrix with `r Biocpkg("edgeR")`, which is a
 well-understood negative-binomial framework for exactly this kind of data.
@@ -917,7 +917,7 @@ normalisation and testing into one function.
 The trajectory side of the package -- Time Aware Trajectory Analysis, a
 time-informed trajectory abstraction for perturbation time courses -- is
 covered in the companion vignette, `vignette("tata-workflow", package =
-"SCProkaR")`.
+"scProkaR")`.
 
 Because the object is a plain `SingleCellExperiment` throughout, you can also
 continue in the wider ecosystem: `r Biocpkg("scater")` for further plotting,

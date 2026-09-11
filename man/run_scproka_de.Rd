@@ -2,7 +2,7 @@
 % Please edit documentation in R/de-edger.R
 \name{run_scproka_de}
 \alias{run_scproka_de}
-\title{Run a full SCProkaR differential expression workflow}
+\title{Run a full scProkaR differential expression workflow}
 \usage{
 run_scproka_de(
   sce,

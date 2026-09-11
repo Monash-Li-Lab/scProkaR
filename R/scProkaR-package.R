@@ -1,6 +1,6 @@
-#' SCProkaR: Microbial Single-Cell RNA-Seq Analysis for Bacterial Systems
+#' scProkaR: Microbial Single-Cell RNA-Seq Analysis for Bacterial Systems
 #'
-#' `SCProkaR` provides a `SingleCellExperiment`-centered toolkit for microbial
+#' `scProkaR` provides a `SingleCellExperiment`-centered toolkit for microbial
 #' single-cell analysis in R. The package combines bacterial QC and integration
 #' workflows with pseudobulk differential expression utilities and Time Aware
 #' Trajectory Analysis (TATA) for time-informed trajectory abstraction.
@@ -17,7 +17,7 @@
 #' Example bacterial single-cell dataset
 #'
 #' `sce1` is a packaged `SingleCellExperiment` example dataset for demonstrating
-#' the core `SCProkaR` workflow. It contains one observation per bacterium and
+#' the core `scProkaR` workflow. It contains one observation per bacterium and
 #' includes three treatment groups (`control`, `PMB0.5`, and `PMB2`) measured
 #' across multiple time points.
 #'
@@ -29,15 +29,15 @@
 #'   \item{treatments}{treatment group}
 #'   \item{timepoints}{experimental sampling time}
 #' }
-#' @source Internal example dataset distributed with `SCProkaR`.
+#' @source Internal example dataset distributed with `scProkaR`.
 #' @examples
-#' data("sce1", package = "SCProkaR")
+#' data("sce1", package = "scProkaR")
 #'
 #' # Size of the object and the assays it carries
 #' dim(sce1)
 #' SummarizedExperiment::assayNames(sce1)
 #'
-#' # Cell metadata used by the SCProkaR workflow
+#' # Cell metadata used by the scProkaR workflow
 #' colnames(SummarizedExperiment::colData(sce1))
 #' table(sce1$treatments, sce1$timepoints)
 #'

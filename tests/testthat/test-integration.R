@@ -43,7 +43,7 @@ test_that("RegisterIntegrationEmbedding records custom embeddings", {
         "integrated_custom" %in% SingleCellExperiment::reducedDimNames(out)
     )
     expect_equal(
-        S4Vectors::metadata(out)$SCProkaR$integration$results$custom$source,
+        S4Vectors::metadata(out)$scProkaR$integration$results$custom$source,
         "external"
     )
 })
@@ -163,7 +163,7 @@ test_that("RunIntegratedClustering stores cluster labels from an integrated embe
     )
     expect_true(length(unique(SummarizedExperiment::colData(sce)$integrated_clusters)) >= 2)
     expect_equal(
-        S4Vectors::metadata(sce)$SCProkaR$integration$clustering$resolution,
+        S4Vectors::metadata(sce)$scProkaR$integration$clustering$resolution,
         0.8
     )
 })

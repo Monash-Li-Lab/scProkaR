@@ -15,25 +15,25 @@ columns:
 }
 }
 \source{
-Internal example dataset distributed with \code{SCProkaR}.
+Internal example dataset distributed with \code{scProkaR}.
 }
 \usage{
 sce1
 }
 \description{
 \code{sce1} is a packaged \code{SingleCellExperiment} example dataset for demonstrating
-the core \code{SCProkaR} workflow. It contains one observation per bacterium and
+the core \code{scProkaR} workflow. It contains one observation per bacterium and
 includes three treatment groups (\code{control}, \code{PMB0.5}, and \code{PMB2}) measured
 across multiple time points.
 }
 \examples{
-data("sce1", package = "SCProkaR")
+data("sce1", package = "scProkaR")
 
 # Size of the object and the assays it carries
 dim(sce1)
 SummarizedExperiment::assayNames(sce1)
 
-# Cell metadata used by the SCProkaR workflow
+# Cell metadata used by the scProkaR workflow
 colnames(SummarizedExperiment::colData(sce1))
 table(sce1$treatments, sce1$timepoints)
 

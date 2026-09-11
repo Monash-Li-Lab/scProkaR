@@ -458,7 +458,7 @@ PlotReduction <- function(
 #' @param batch_col Batch column in `colData(sce)`.
 #' @param label_col Optional biological label column in `colData(sce)`.
 #' @param split_by Optional metadata column used to facet the integrated plot.
-#'   This is the `SCProkaR` equivalent of Seurat's `split.by`.
+#'   This is the `scProkaR` equivalent of Seurat's `split.by`.
 #' @param point_size Point size passed to [PlotReduction()].
 #' @param point_alpha Point alpha passed to [PlotReduction()].
 #' @param shuffle Whether to shuffle plotting order.
@@ -575,8 +575,8 @@ PlotIntegrationOverview <- function(
 #' Register an external embedding for benchmarking and downstream analysis
 #'
 #' Adds a precomputed embedding to `reducedDims(sce)` and records it in
-#' `metadata(sce)$SCProkaR$integration`, allowing custom integration outputs to
-#' be benchmarked alongside native SCProkaR methods.
+#' `metadata(sce)$scProkaR$integration`, allowing custom integration outputs to
+#' be benchmarked alongside native scProkaR methods.
 #'
 #' @param sce A `SingleCellExperiment`.
 #' @param embedding A matrix-like cell embedding with one row per cell.
@@ -603,7 +603,7 @@ PlotIntegrationOverview <- function(
 #'     metadata = list(software = "external_tool", version = "1.0")
 #' )
 #' print(SingleCellExperiment::reducedDimNames(sce))
-#' record <- S4Vectors::metadata(sce)$SCProkaR$integration$results
+#' record <- S4Vectors::metadata(sce)$scProkaR$integration$results
 #' print(record$my_method)
 RegisterIntegrationEmbedding <- function(
     sce,

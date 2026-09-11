@@ -1,6 +1,6 @@
-# SCProkaR
+# scProkaR
 
-SCProkaR is a `SingleCellExperiment`-centred toolkit for microbial single-cell
+scProkaR is a `SingleCellExperiment`-centred toolkit for microbial single-cell
 RNA sequencing. It standardises bacterial input objects, computes
 prokaryote-specific quality-control metrics such as ribosomal RNA fraction,
 integrates batches with several backends, and scores the corrected embeddings
@@ -10,26 +10,26 @@ differential expression built on edgeR, and Time Aware Trajectory Analysis
 
 ## Installation
 
-SCProkaR is under review for Bioconductor. Once it is accepted, install it
+scProkaR is under review for Bioconductor. Once it is accepted, install it
 with:
 
 ```r
 if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
-BiocManager::install("SCProkaR")
+BiocManager::install("scProkaR")
 ```
 
 To install the development version from GitHub:
 
 ```r
-BiocManager::install("Monash-Li-Lab/SCProkaR")
+BiocManager::install("Monash-Li-Lab/scProkaR")
 ```
 
 ## Getting started
 
 ```r
-library(SCProkaR)
-data("sce1", package = "SCProkaR")
+library(scProkaR)
+data("sce1", package = "scProkaR")
 sce1
 ```
 
@@ -71,10 +71,10 @@ plot_tata_cluster_graph(tata)
 Two vignettes document the package in full:
 
 ```r
-browseVignettes("SCProkaR")
+browseVignettes("scProkaR")
 ```
 
-* **SCProkaR core workflow** covers object creation, quality control,
+* **scProkaR core workflow** covers object creation, quality control,
   integration, benchmarking, clustering and pseudobulk differential
   expression.
 * **Time Aware Trajectory Analysis** covers the TATA graph, pseudotime,
@@ -107,9 +107,9 @@ Several backends are optional and are only needed for specific steps:
 ## Getting help
 
 Please open an issue at
-<https://github.com/Monash-Li-Lab/SCProkaR/issues>, or ask on the
+<https://github.com/Monash-Li-Lab/scProkaR/issues>, or ask on the
 [Bioconductor support site](https://support.bioconductor.org/) using the
-`SCProkaR` tag.
+`scProkaR` tag.
 
 ## License
 

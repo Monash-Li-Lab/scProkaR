@@ -1,4 +1,4 @@
-# SCProkaR 0.99.0
+# scProkaR 0.99.0
 
 ## New
 

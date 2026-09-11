@@ -25,5 +25,5 @@ test_that("FilterBacCells records filtering summary", {
     filtered <- FilterBacCells(sce, min_counts = 3, max_rrna_fraction = 0.95)
 
     expect_lte(ncol(filtered), ncol(sce))
-    expect_true(!is.null(S4Vectors::metadata(filtered)$SCProkaR$filtering))
+    expect_true(!is.null(S4Vectors::metadata(filtered)$scProkaR$filtering))
 })

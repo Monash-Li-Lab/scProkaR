@@ -7,6 +7,6 @@
 # * https://testthat.r-lib.org/articles/special-files.html
 
 library(testthat)
-library(SCProkaR)
+library(scProkaR)
 
-test_check("SCProkaR")
+test_check("scProkaR")

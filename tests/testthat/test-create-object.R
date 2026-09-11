@@ -9,7 +9,7 @@ test_that("CreateBacObject standardizes matrix input", {
 
     expect_s4_class(sce, "SingleCellExperiment")
     expect_true("counts" %in% SummarizedExperiment::assayNames(sce))
-    expect_equal(S4Vectors::metadata(sce)$SCProkaR$package, "SCProkaR")
+    expect_equal(S4Vectors::metadata(sce)$scProkaR$package, "scProkaR")
     expect_equal(rownames(SummarizedExperiment::colData(sce)), colnames(sce))
 })
 
@@ -164,7 +164,7 @@ test_that("CreateBacObject accepts a 10x directory path", {
     expect_equal(nrow(sce), nrow(toy_counts()))
     expect_equal(ncol(sce), ncol(toy_counts()))
     expect_equal(
-        S4Vectors::metadata(sce)$SCProkaR$tenx$source_dir,
+        S4Vectors::metadata(sce)$scProkaR$tenx$source_dir,
         normalizePath(tmpdir, winslash = "/", mustWork = TRUE)
     )
 })
@@ -230,11 +230,11 @@ test_that("CreateBacObject can assign fixed sample and batch values for 10x inpu
     expect_true(all(as.character(sce$sample_id) == "sample_a"))
     expect_true(all(as.character(sce$batch) == "batch_a"))
     expect_identical(
-        S4Vectors::metadata(sce)$SCProkaR$columns$sample_col,
+        S4Vectors::metadata(sce)$scProkaR$columns$sample_col,
         "sample_id"
     )
     expect_identical(
-        S4Vectors::metadata(sce)$SCProkaR$columns$batch_col,
+        S4Vectors::metadata(sce)$scProkaR$columns$batch_col,
         "batch"
     )
 })
@@ -290,7 +290,7 @@ test_that("CreateBacObject accepts Seurat input when SeuratObject is available",
     expect_true(
         all(c("pca", "umap") %in% SingleCellExperiment::reducedDimNames(sce))
     )
-    expect_equal(S4Vectors::metadata(sce)$SCProkaR$seurat$assay, "RNA")
+    expect_equal(S4Vectors::metadata(sce)$scProkaR$seurat$assay, "RNA")
 })
 
 test_that("MergeBacObjects merges per-sample objects safely", {
@@ -346,7 +346,7 @@ test_that("MergeBacObjects merges per-sample objects safely", {
     expect_true(
         "original_cell_id" %in% colnames(SummarizedExperiment::colData(merged))
     )
-    expect_equal(S4Vectors::metadata(merged)$SCProkaR$merge$n_objects, 2)
+    expect_equal(S4Vectors::metadata(merged)$scProkaR$merge$n_objects, 2)
     expect_true(
         all(c("pca", "umap") %in%
             SingleCellExperiment::reducedDimNames(merged))

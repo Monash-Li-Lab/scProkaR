@@ -1055,7 +1055,7 @@ plot_time_series_deg_curves <- function(
 }
 
 
-#' Run a full SCProkaR differential expression workflow
+#' Run a full scProkaR differential expression workflow
 #'
 #' Aggregate single-cell counts into pseudobulk samples and then dispatch to a
 #' pairwise or time-series edgeR workflow.
