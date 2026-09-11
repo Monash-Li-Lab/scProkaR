@@ -593,6 +593,9 @@ PlotIntegrationOverview <- function(
 #' @param reduction_name Optional reducedDim name. Defaults to
 #'   `paste0("integrated_", method_name)`.
 #' @param metadata Optional named list describing the external method.
+#' @param overwrite Logical indicating whether to replace an existing reduced
+#'   dimension with different values. Defaults to `FALSE`; registering the same
+#'   embedding again is allowed.
 #'
 #' @return A `SingleCellExperiment` with the external embedding registered.
 #' @export
@@ -619,7 +622,8 @@ RegisterIntegrationEmbedding <- function(
     embedding,
     method_name,
     reduction_name = NULL,
-    metadata = list()
+    metadata = list(),
+    overwrite = FALSE
 ) {
     if (is.null(reduction_name)) {
         reduction_name <- paste0("integrated_", method_name)
@@ -644,7 +648,27 @@ RegisterIntegrationEmbedding <- function(
         rownames(embedding) <- colnames(sce)
     }
 
+    available <- SingleCellExperiment::reducedDimNames(sce)
+    if (reduction_name %in% available && !isTRUE(overwrite)) {
+        existing <- as.matrix(SingleCellExperiment::reducedDim(
+            sce, reduction_name
+        ))
+        same_embedding <- isTRUE(all.equal(
+            existing, embedding, check.attributes = FALSE, tolerance = 0
+        ))
+        if (!same_embedding) {
+            stop(
+                "Reduction '", reduction_name, "' already exists. ",
+                "Use `overwrite = TRUE` or choose a different ",
+                "`reduction_name`.",
+                call. = FALSE
+            )
+        }
+    }
+
     SingleCellExperiment::reducedDim(sce, reduction_name) <- embedding
+    source <- if (!is.null(metadata$source)) metadata$source else "external"
+    metadata$source <- NULL
 
     meta <- .scprokar_get_metadata(sce)
     if (is.null(meta$integration)) {
@@ -653,12 +677,169 @@ RegisterIntegrationEmbedding <- function(
     meta$integration$results[[method_name]] <- c(
         list(
             reduction = reduction_name,
-            source = "external",
+            source = source,
             dims = seq_len(ncol(embedding))
         ),
         metadata
     )
     .scprokar_set_metadata(sce, meta)
+}
+
+#' Register existing reduced dimensions as integration embeddings
+#'
+#' Registers embeddings already stored in a `SingleCellExperiment`, including
+#' Seurat CCA/RPCA, Scanorama, scVI, SCALEX, BBKNN, ComBat and LIGER latent
+#' spaces. It does not run these external tools or import their native objects.
+#' The selected reductions are copied or referenced and recorded in
+#' `metadata(sce)$scProkaR$integration`, so [BenchmarkIntegration()] can compare
+#' them with scProkaR MNN and Harmony outputs.
+#'
+#' @param sce A `SingleCellExperiment`.
+#' @param reductions Character vector of existing reduced-dimension names.
+#'   If `NULL`, likely integration reductions are detected from their names.
+#'   Pass names explicitly when automatic detection is unsuitable.
+#' @param method_names Optional names to use in benchmark tables. Must be
+#'   unique and have the same length as `reductions`. By default, names are
+#'   inferred from the reductions and converted to lower case.
+#' @param copy Logical. If `TRUE`, reductions not already starting with
+#'   `prefix` are copied to `paste0(prefix, method_name)`. If `FALSE`, their
+#'   original names are registered directly.
+#' @param prefix Prefix used when `copy = TRUE`.
+#' @param metadata Optional named list added to each method's metadata. A list
+#'   entry named by `method_name`, if present, is used for that method instead.
+#'   `source` and `original_reduction` are recorded by this function.
+#' @param overwrite Logical indicating whether copied reduced dimensions may
+#'   replace existing reductions with different values.
+#'
+#' @return A `SingleCellExperiment` with registered integration embeddings.
+#' @export
+#' @examples
+#' set.seed(1)
+#' sce <- simulate_tata_sce(n_cells = 1000, n_features = 60)
+#' # Stand-in for a latent space from an external integration tool.
+#' SingleCellExperiment::reducedDim(sce, "X_scVI") <-
+#'     SingleCellExperiment::reducedDim(sce, "PCA")[, seq_len(3)]
+#' sce <- RegisterExistingIntegrationEmbeddings(sce, reductions = "X_scVI")
+#' SingleCellExperiment::reducedDimNames(sce)
+#' S4Vectors::metadata(sce)$scProkaR$integration$results$scvi
+RegisterExistingIntegrationEmbeddings <- function(
+    sce,
+    reductions = NULL,
+    method_names = NULL,
+    copy = TRUE,
+    prefix = "integrated_",
+    metadata = list(),
+    overwrite = FALSE
+) {
+    if (!methods::is(sce, "SingleCellExperiment")) {
+        stop("`sce` must be a SingleCellExperiment.", call. = FALSE)
+    }
+
+    available <- SingleCellExperiment::reducedDimNames(sce)
+    if (length(available) == 0L) {
+        stop("No reduced dimensions are available in `sce`.", call. = FALSE)
+    }
+
+    if (is.null(reductions)) {
+        reductions <- .scprokar_guess_external_integration_reductions(
+            available
+        )
+        if (length(reductions) == 0L) {
+            stop(
+                "No likely external integration reductions were detected. ",
+                "Pass `reductions = ...` explicitly.",
+                call. = FALSE
+            )
+        }
+    }
+
+    if (!is.character(reductions) || length(reductions) == 0L ||
+            anyNA(reductions) || any(!nzchar(reductions))) {
+        stop("`reductions` must contain non-empty names.", call. = FALSE)
+    }
+    missing <- setdiff(reductions, available)
+    if (length(missing) > 0L) {
+        stop(
+            "The following reductions were not found: ",
+            paste(missing, collapse = ", "),
+            ". Available reductions: ", paste(available, collapse = ", "),
+            call. = FALSE
+        )
+    }
+
+    if (is.null(method_names)) {
+        method_names <- vapply(
+            reductions, .scprokar_infer_integration_method_name, character(1)
+        )
+    }
+    if (length(method_names) != length(reductions)) {
+        stop(
+            "`method_names` must have the same length as `reductions`.",
+            call. = FALSE
+        )
+    }
+    if (!is.character(method_names) || anyNA(method_names) ||
+            any(!nzchar(method_names)) || anyDuplicated(method_names)) {
+        stop("`method_names` must be unique, non-empty names.", call. = FALSE)
+    }
+
+    for (i in seq_along(reductions)) {
+        reduction <- reductions[[i]]
+        method_name <- method_names[[i]]
+        target <- if (isTRUE(copy) && !startsWith(reduction, prefix)) {
+            paste0(prefix, method_name)
+        } else {
+            reduction
+        }
+        method_metadata <- metadata
+        if (is.list(metadata[[method_name]])) {
+            method_metadata <- metadata[[method_name]]
+        }
+        method_metadata$source <- "external_existing_reduction"
+        method_metadata$original_reduction <- reduction
+
+        sce <- RegisterIntegrationEmbedding(
+            sce = sce,
+            embedding = SingleCellExperiment::reducedDim(sce, reduction),
+            method_name = method_name,
+            reduction_name = target,
+            metadata = method_metadata,
+            overwrite = overwrite
+        )
+    }
+
+    sce
+}
+
+#' @keywords internal
+.scprokar_guess_external_integration_reductions <- function(reduction_names) {
+    lower <- tolower(reduction_names)
+    include <- grepl(
+        paste(
+            c(
+                "^integrated_", "^x_", "cca", "rpca", "scanorama", "scvi",
+                "scgen", "scalex", "bbknn", "combat", "regress", "liger",
+                "harmony", "mnn"
+            ),
+            collapse = "|"
+        ),
+        lower
+    )
+    exclude <- lower %in% c(
+        "pca", "x_pca", "umap", "x_umap", "tsne", "x_tsne", "fdl", "x_fdl",
+        "diffmap", "x_diffmap", "diffusion", "truth"
+    ) | grepl("^(x_)?(umap|tsne|fdl)_", lower)
+    reduction_names[include & !exclude]
+}
+
+#' @keywords internal
+.scprokar_infer_integration_method_name <- function(reduction_name) {
+    out <- sub("^integrated_", "", reduction_name, ignore.case = TRUE)
+    out <- sub("^X_", "", out, ignore.case = TRUE)
+    out <- sub("^seurat_", "", out, ignore.case = TRUE)
+    out <- gsub("[^A-Za-z0-9]+", "_", out)
+    out <- gsub("^_+|_+$", "", out)
+    tolower(out)
 }
 
 #' @keywords internal

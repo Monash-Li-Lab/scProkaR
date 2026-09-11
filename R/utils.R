@@ -390,6 +390,7 @@ NULL
     meta <- .scprokar_get_metadata(sce)
     integrations <- meta$integration$results
     mapping <- list()
+    available <- SingleCellExperiment::reducedDimNames(sce)
 
     if (!is.null(integrations)) {
         for (nm in names(integrations)) {
@@ -397,11 +398,24 @@ NULL
         }
     }
 
+    integrated_reductions <- grep("^integrated_", available, value = TRUE)
+    registered_reductions <- unname(unlist(mapping, use.names = FALSE))
+    for (reduction_name in integrated_reductions) {
+        if (reduction_name %in% registered_reductions) {
+            next
+        }
+        method_name <- .scprokar_infer_integration_method_name(reduction_name)
+        if (!nzchar(method_name) || !is.null(mapping[[method_name]])) {
+            method_name <- reduction_name
+        }
+        mapping[[method_name]] <- reduction_name
+    }
+
     if (is.null(methods)) {
         if (length(mapping) > 0) {
             return(mapping)
         }
-        names_out <- SingleCellExperiment::reducedDimNames(sce)
+        names_out <- available
         out <- as.list(names_out)
         names(out) <- names_out
         return(out)
@@ -411,8 +425,16 @@ NULL
     for (item in methods) {
         if (!is.null(mapping[[item]])) {
             out[[item]] <- mapping[[item]]
-        } else if (item %in% SingleCellExperiment::reducedDimNames(sce)) {
+        } else if (item %in% available) {
             out[[item]] <- item
+        } else if (tolower(item) %in% tolower(names(mapping))) {
+            matched <- names(mapping)[match(
+                tolower(item), tolower(names(mapping))
+            )]
+            out[[matched]] <- mapping[[matched]]
+        } else if (tolower(item) %in% tolower(available)) {
+            matched <- available[match(tolower(item), tolower(available))]
+            out[[matched]] <- matched
         }
     }
     out

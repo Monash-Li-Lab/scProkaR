@@ -22,15 +22,14 @@ BenchmarkIntegration(
 \item{label_col}{Optional biological label column for conservation metrics.}
 
 \item{methods}{Optional vector of integration method names or reducedDim
-names to benchmark. When \code{NULL}, all stored integration results are used.}
+names to benchmark, matched without regard to case. When \code{NULL}, stored
+integration results and other reductions named \verb{integrated_*} are used.
+If neither is present, all available reductions are used.
+Exact matches take precedence over case-insensitive matches.}
 
 \item{metrics}{Metric names to calculate.}
 
-\item{return_plots}{If \code{TRUE}, return summary ggplot objects.
-
-Any embedding already present in \code{reducedDims(sce)} can be benchmarked by
-passing its reduced-dimension name in \code{methods}, and external embeddings can
-be registered with \code{\link[=RegisterIntegrationEmbedding]{RegisterIntegrationEmbedding()}}.}
+\item{return_plots}{If \code{TRUE}, return summary ggplot objects.}
 }
 \value{
 A list with \code{scores}, \code{ranking}, and optional \code{plots}.
@@ -38,6 +37,12 @@ A list with \code{scores}, \code{ranking}, and optional \code{plots}.
 \description{
 Computes a compact R-native metric panel across available reduced dimensions
 and summarizes the results with scores and optional plots.
+}
+\details{
+Any embedding already present in \code{reducedDims(sce)} can be benchmarked by
+passing its reduced-dimension name in \code{methods}, and external embeddings can
+be registered with \code{\link[=RegisterIntegrationEmbedding]{RegisterIntegrationEmbedding()}} or
+\code{\link[=RegisterExistingIntegrationEmbeddings]{RegisterExistingIntegrationEmbeddings()}}.
 }
 \examples{
 set.seed(1)
