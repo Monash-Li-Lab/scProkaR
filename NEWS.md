@@ -2,6 +2,12 @@
 
 ## New
 
+* `RegisterExistingIntegrationEmbeddings()` registers latent spaces already
+  stored in an object, with optional copying and automatic name detection.
+* `RegisterIntegrationEmbedding()` protects existing reductions from changes
+  unless `overwrite = TRUE` is supplied.
+* `BenchmarkIntegration()` discovers unregistered `integrated_*` reductions
+  and accepts method and reduction names without regard to case.
 * First submission to Bioconductor.
 * `CreateBacObject()` builds a `SingleCellExperiment` from a count matrix, a
   10x Genomics directory, or a Seurat object, and `MergeBacObjects()` combines

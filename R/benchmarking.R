@@ -7,13 +7,18 @@
 #' @param batch_col Column in `colData(sce)` containing batch labels.
 #' @param label_col Optional biological label column for conservation metrics.
 #' @param methods Optional vector of integration method names or reducedDim
-#'   names to benchmark. When `NULL`, all stored integration results are used.
+#'   names to benchmark, matched without regard to case. When `NULL`, stored
+#'   integration results and other reductions named `integrated_*` are used.
+#'   If neither is present, all available reductions are used.
+#'   Exact matches take precedence over case-insensitive matches.
 #' @param metrics Metric names to calculate.
 #' @param return_plots If `TRUE`, return summary ggplot objects.
 #'
+#' @details
 #' Any embedding already present in `reducedDims(sce)` can be benchmarked by
 #' passing its reduced-dimension name in `methods`, and external embeddings can
-#' be registered with [RegisterIntegrationEmbedding()].
+#' be registered with [RegisterIntegrationEmbedding()] or
+#' [RegisterExistingIntegrationEmbeddings()].
 #'
 #' @return A list with `scores`, `ranking`, and optional `plots`.
 #' @export

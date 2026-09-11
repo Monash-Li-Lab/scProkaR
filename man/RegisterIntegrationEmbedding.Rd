@@ -9,7 +9,8 @@ RegisterIntegrationEmbedding(
   embedding,
   method_name,
   reduction_name = NULL,
-  metadata = list()
+  metadata = list(),
+  overwrite = FALSE
 )
 }
 \arguments{
@@ -23,6 +24,10 @@ RegisterIntegrationEmbedding(
 \code{paste0("integrated_", method_name)}.}
 
 \item{metadata}{Optional named list describing the external method.}
+
+\item{overwrite}{Logical indicating whether to replace an existing reduced
+dimension with different values. Defaults to \code{FALSE}; registering the same
+embedding again is allowed.}
 }
 \value{
 A \code{SingleCellExperiment} with the external embedding registered.

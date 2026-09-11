@@ -429,6 +429,19 @@ sce <- RegisterIntegrationEmbedding(
 reducedDimNames(sce)
 ```
 
+For an object that already contains external latent spaces, use
+`RegisterExistingIntegrationEmbeddings(sce, reductions = "X_scVI")`, or pass
+several names such as `c("seurat_cca", "X_scVI")`. The default copies them to
+`integrated_cca` and `integrated_scvi`; `copy = FALSE` registers the original
+reductions directly. Omitting `reductions` detects likely integration names.
+This registers existing coordinates; it does not run the external methods.
+
+Both registration functions protect existing embeddings from replacement
+unless `overwrite = TRUE` is supplied. Registering the same values again is
+allowed. `BenchmarkIntegration()` includes registered methods and other
+`integrated_*` reductions by default, and accepts names without regard to case
+(for example, `methods = "SCVI"`).
+
 We now pick the reduction to carry forward. MNN is preferred when
 `r Biocpkg("batchelor")` was available; otherwise the registered embedding
 takes over, so the remainder of the vignette produces meaningful output on a
