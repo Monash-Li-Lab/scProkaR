@@ -208,9 +208,6 @@ BenchmarkIntegration <- function(
     if (is.null(labels)) {
         return(list(value = NA_real_, score = NA_real_, higher_better = TRUE))
     }
-    if (!requireNamespace("igraph", quietly = TRUE)) {
-        return(list(value = NA_real_, score = NA_real_, higher_better = TRUE))
-    }
     labels <- as.factor(labels)
     g <- igraph::graph_from_adjacency_matrix(
         graph,

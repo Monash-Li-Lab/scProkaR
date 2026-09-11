@@ -263,7 +263,6 @@ RunIntegratedClustering <- function(
     algorithm = c("louvain", "walktrap", "leiden"),
     resolution = 0.8
 ) {
-    .scprokar_require("igraph", "RunIntegratedClustering()")
     algorithm <- match.arg(algorithm)
 
     reduction_name <- .scprokar_default_integration_reduction(
