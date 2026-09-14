@@ -13,13 +13,12 @@ output:
     toc_float: true
     toc_depth: 2
 abstract: |
-  This vignette walks through the end-to-end scProkaR workflow on a bacterial
-  single-cell RNA-seq time course of cells exposed to polymyxin B at two
-  concentrations. It covers object construction, prokaryote-specific quality
-  control, batch integration and benchmarking, clustering and visualisation,
-  and pseudobulk differential expression with edgeR. Every analysis object is
-  a SingleCellExperiment, so the workflow composes with the rest of
-  Bioconductor.
+  This vignette demonstrates scProkaR using a bacterial single-cell RNA-seq
+  time course with two polymyxin B concentrations and an untreated control.
+  It covers data import, quality control, integration, clustering,
+  visualisation and pseudobulk differential expression with edgeR. Cell-level data are stored in a SingleCellExperiment. The integration and
+  differential-expression sections explain the limitations of the example
+  design.
 vignette: >
   %\VignetteIndexEntry{1. scProkaR core workflow}
   %\VignetteEngine{knitr::rmarkdown}
@@ -40,54 +39,42 @@ knitr::opts_chunk$set(
 
 # Introduction
 
-`scProkaR` is a workflow package for **microbial** single-cell
-RNA sequencing. Bacterial scRNA-seq differs from mammalian scRNA-seq in ways
-that break the usual assumptions of general-purpose single-cell tooling:
-libraries are one to two orders of magnitude sparser (a few hundred UMIs per
-cell is normal rather than pathological), bacteria have no mitochondrial
-genome so the standard `pct_mito` quality-control axis does not exist, the
-dominant technical confounder is instead the fraction of reads captured on
-ribosomal RNA, and gene identifiers are a mixture of locus tags and gene
-symbols rather than stable Ensembl IDs. Most published bacterial scRNA-seq
-experiments are also perturbation *time courses* -- a drug or stress applied at
-several doses and sampled at several timepoints -- so the analytical question is
-usually "how does the population reorganise over time under treatment", not
-"which cell types are present".
+`scProkaR` provides tools for analysing bacterial single-cell RNA sequencing
+(scRNA-seq) data. The workflow covers quality control, integration,
+clustering and differential expression in a polymyxin B time course.
 
-scProkaR addresses those specifics while staying inside the Bioconductor
-single-cell ecosystem rather than beside it. Concretely, the package provides:
+Bacterial data require quality-control criteria suited to the organism and
+assay. Relevant measurements include library size, detected genes, and the
+fractions of counts assigned to ribosomal RNA and ribosomal-protein genes.
+Gene identifiers may include both locus tags and gene symbols.
 
-* `CreateBacObject()`, a single entry point that accepts a count matrix, a
-  10x Genomics CellRanger output directory, a `SingleCellExperiment`, or a
-  Seurat object, and always returns a `SingleCellExperiment`;
-* `RunBacQC()` and `FilterBacCells()`, which compute and apply
-  prokaryote-appropriate QC metrics including rRNA and ribosomal-protein
-  fractions;
-* `IntegrateBacData()` and `RegisterIntegrationEmbedding()`, which produce or
-  adopt a batch-corrected embedding;
-* `BenchmarkIntegration()`, which scores competing embeddings with
-  scIB-*inspired* metrics so the choice of correction is an evidence-based
-  one;
+The main functions used in this workflow are:
+
+* `CreateBacObject()` converts count matrices, 10x Genomics output,
+  `SingleCellExperiment` objects and Seurat objects into a
+  `SingleCellExperiment`.
+* `RunBacQC()` computes per-cell quality-control (QC) metrics, and
+  `FilterBacCells()` applies user-specified thresholds.
+* `IntegrateBacData()` computes integration embeddings;
+  `RegisterIntegrationEmbedding()` and `RegisterExistingIntegrationEmbeddings()`
+  register externally computed embeddings.
+* `BenchmarkIntegration()` compares embeddings using scIB-inspired metrics.
 * `aggregate_pseudobulk()`, `normalize_pseudobulk()`,
-  `run_edger_pairwise_de()` and `run_edger_spline_de()`, a pseudobulk
-  differential-expression path built on `r Biocpkg("edgeR")`;
-* Time Aware Trajectory Analysis (TATA), covered in a separate vignette.
+  `run_edger_pairwise_de()` and `run_edger_spline_de()` support pseudobulk
+  differential expression with `r Biocpkg("edgeR")`.
+* Time Aware Trajectory Analysis (TATA) is described in the companion vignette.
 
-**Relationship to existing Bioconductor infrastructure.** Every object that
-scProkaR creates, modifies, or returns is a
-`r Biocpkg("SingleCellExperiment")`. Counts live in the `counts` assay,
-log-normalised values in `logcounts`, cell annotation in `colData()`,
-embeddings in `reducedDims()`, and provenance for each scProkaR step in
-`metadata(sce)$scProkaR`. Nothing is hidden in a bespoke class. That means you
-can hand a scProkaR object straight to `r Biocpkg("scater")` for plotting and
-per-cell QC, to `r Biocpkg("scran")` for variance modelling, marker detection
-or graph-based clustering, or to `r Biocpkg("batchelor")` for any correction
-method the package does not wrap; and equally you can hand any
-`SingleCellExperiment` produced elsewhere to scProkaR. scProkaR itself uses
-`r Biocpkg("scran")` for feature selection when it is installed, delegates MNN
-correction to `r Biocpkg("batchelor")`, and delegates the differential-testing
-statistics to `r Biocpkg("edgeR")`. The package is a bacteria-aware layer over
-that infrastructure, not a replacement for it.
+The cell-level workflow uses `r Biocpkg("SingleCellExperiment")` as its main
+data container. Counts are stored in `counts`, log-normalised expression in
+`logcounts`, cell annotations in `colData()`, and embeddings in `reducedDims()`.
+Processing records are stored in `metadata(sce)$scProkaR`.
+
+These objects can be used with `r Biocpkg("scater")`, `r Biocpkg("scran")`
+and other Bioconductor tools that accept a `SingleCellExperiment`.
+scProkaR uses scran for feature selection when available,
+`r Biocpkg("batchelor")` for MNN correction, and `r Biocpkg("edgeR")` for
+pseudobulk testing. Benchmarking, modelling and plotting functions return
+other result types, as described in their help pages.
 
 # Installation
 
@@ -105,10 +92,10 @@ library(ggplot2)
 
 # The example data
 
-The package ships one example object, `sce1`, a droplet-based bacterial
-scRNA-seq experiment in which cells were challenged with polymyxin B (PMB) at
-two concentrations and sampled over time. See `inst/scripts/make-sce1.R` for the
-provenance of this object.
+The package includes `sce1`, a bacterial scRNA-seq dataset with untreated
+cells and cells exposed to two polymyxin B (PMB) concentrations.
+The available preparation notes are in `inst/scripts/make-sce1.R`; source
+accession and protocol details still need to be completed there.
 
 ```{r load-data}
 data("sce1", package = "scProkaR")
@@ -121,29 +108,25 @@ The design is a dose-by-time grid:
 table(sce1$treatments, sce1$timepoints)
 ```
 
-There are three treatment arms -- an untreated `control` plus two polymyxin B
-concentrations, `PMB0.5` and `PMB2` -- sampled at 0, 1, 4 and 7 hours. The
-untreated baseline was only collected at hour 0, so the `0` timepoint exists
-in the control arm alone; the treated arms start at hour 1. Each of the ten
-resulting samples contributes exactly 500 cells, for 5000 cells in total, and
-`colData()` records the sample of origin, the treatment, the timepoint, and a
-pre-computed biological label `clusters` that we will use later as ground
-truth when benchmarking integration.
+The untreated `control` was sampled at 0, 1, 4 and 7 hours.
+The `PMB0.5` and `PMB2` treatment groups were sampled at 1, 4 and 7 hours;
+only the control has a time-zero sample. Each of the ten samples contains
+500 cells, giving 5000 cells in total. `colData()` records the sample,
+treatment, timepoint and precomputed `clusters` labels. The labels provide
+a reference for the integration examples; their biological interpretation
+depends on the source annotation.
 
 ```{r describe-coldata}
 head(as.data.frame(colData(sce1)), 4)
 ```
 
-The 3722 features are a mix of gene symbols and locus tags, which is typical of
-a bacterial annotation: well-characterised genes carry a symbol, everything
-else keeps its locus tag.
+The 3722 feature identifiers include both gene symbols and locus tags:
 
 ```{r describe-features}
 head(rownames(sce1), 8)
 ```
 
-Counts are sparse even by single-cell standards, which is the single most
-important practical fact about this data type:
+Inspect the per-cell library sizes before choosing thresholds for filtering:
 
 ```{r describe-depth}
 summary(Matrix::colSums(assay(sce1, "counts")))
@@ -151,11 +134,10 @@ summary(Matrix::colSums(assay(sce1, "counts")))
 
 ## Subsetting for this vignette
 
-To keep the vignette fast to build we take a stratified random subsample of
-250 cells from each of the ten samples (2500 of 5000 cells). The design stays
-completely balanced, so every step below behaves exactly as it would on the
-full object; only the running time and the statistical power change. On your
-own data, do not subsample -- run the workflow on all cells.
+To reduce build time, this vignette samples 250 cells from each of the ten
+samples, retaining 2500 cells in total. Equal sample sizes are preserved,
+but subsampling can change feature selection, neighbourhoods, clusters and
+statistical estimates. Assess the full dataset for the final analysis.
 
 ```{r subset-cells}
 set.seed(101)
@@ -169,16 +151,17 @@ dim(sce_small)
 
 # Creating a scProkaR object
 
-`CreateBacObject()` is the entry point. Here we drive it from a raw count
-matrix plus a per-cell metadata `data.frame`, which is the most general case;
-the `sample_col`, `batch_col`, `condition_col` and `time_col` arguments simply
-tell scProkaR which existing metadata columns carry those roles.
+The example below supplies a count matrix and a per-cell metadata
+`data.frame` to `CreateBacObject()`. The `sample_col`, `batch_col`,
+`condition_col` and `time_col` arguments identify the corresponding metadata
+columns. Here, treatment is also used as the batch variable; the integration
+section explains the resulting confounding.
 
-Setting `run_unintegrated = TRUE` also runs the standard uncorrected
-first-pass: log-normalisation, feature selection, PCA, graph-based clustering,
-and (when `r CRANpkg("uwot")` is installed) a UMAP stored as
-`umap.unintegrated`. That uncorrected view is what we will compare the
-integrated embeddings against.
+Setting `run_unintegrated = TRUE` runs log-normalisation, feature selection,
+principal component analysis (PCA) and graph-based clustering. When
+`r CRANpkg("uwot")` is installed, it also stores a UMAP embedding as
+`umap.unintegrated`. This provides an uncorrected reference for the
+integration examples.
 
 ```{r create-object}
 counts_matrix <- assay(sce_small, "counts")
@@ -228,11 +211,9 @@ tenx_call <- quote(CreateBacObject(
 tenx_call
 ```
 
-**Seurat objects.** If your data already lives in a Seurat object,
-`CreateBacObject()` converts it, pulling the requested assay and layer,
-carrying over `meta.data` and any existing reductions. This path needs
-`r CRANpkg("SeuratObject")`, which is only a suggested dependency, so it is
-guarded:
+**Seurat objects.** `CreateBacObject()` imports the requested assay and
+layer, cell metadata and existing reductions. The following example runs
+when the optional `r CRANpkg("SeuratObject")` package is installed:
 
 ```{r seurat-entry-point}
 if (requireNamespace("SeuratObject", quietly = TRUE)) {
@@ -255,34 +236,27 @@ if (requireNamespace("SeuratObject", quietly = TRUE)) {
 }
 ```
 
-The `Layer 'data' is empty` warning above is expected and harmless: the
-conversion also looks for a normalised layer to carry over as `logcounts`, and
-this demonstration object only has raw counts. scProkaR normalises for itself
-when it needs to.
+A `Layer 'data' is empty` warning may appear because this demonstration
+object contains raw counts without a normalised data layer. Normalisation
+is performed later when required by the workflow.
 
-Whichever door you come in through, the object you get back is a
-`SingleCellExperiment` and the rest of the workflow is identical. When you
-build one object per sample, combine them with `MergeBacObjects()` rather than
-`cbind()`: it aligns genes across objects, de-duplicates cell barcodes that
-collide between samples (keeping the original in
-`colData()$original_cell_id`), and carries compatible reductions forward.
+Each supported input is converted to a `SingleCellExperiment`.
+Use `MergeBacObjects()` to combine objects prepared separately for each sample.
+It aligns features, makes duplicate cell identifiers unique, retains the
+original identifiers in `colData()$original_cell_id`, and carries forward
+compatible reductions.
 
 # Quality control
 
-`RunBacQC()` computes per-cell QC metrics and writes them into `colData()`.
-Alongside the familiar `total_counts` and `detected_features`, it computes two
-prokaryote-specific fractions:
+`RunBacQC()` writes per-cell QC metrics to `colData()`, including
+`total_counts`, `detected_features` and two ribosomal fractions:
 
-* **`rrna_fraction`** -- the proportion of a cell's counts falling on ribosomal
-  *RNA* genes. This is the bacterial analogue of the mitochondrial fraction in
-  mammalian data. rRNA dominates the bacterial transcriptome, so most
-  protocols try to deplete it; a cell with an unusually high residual rRNA
-  fraction usually reflects failed depletion or a damaged, lysing cell whose
-  mRNA has degraded away faster than its far more abundant rRNA.
-* **`ribo_fraction`** -- the proportion of counts on ribosomal *protein* genes
-  (`rpl*`, `rps*`). This is a biological signal rather than a defect: it
-  tracks translational capacity and therefore growth rate, and it typically
-  collapses under antibiotic stress.
+* **`rrna_fraction`** is the fraction of counts assigned to ribosomal RNA
+  genes. Its interpretation depends on the annotation and rRNA depletion
+  protocol; a high value alone does not establish cell damage.
+* **`ribo_fraction`** is the fraction assigned to ribosomal-protein genes
+  such as `rpl*` and `rps*`. Inspect its distribution across conditions before
+  deciding whether it is relevant to filtering.
 
 Genes are classified by regular expression on the row names by default
 (`rrna_pattern = "^(rrs|rrl|rrf)"`), which matches the standard bacterial
@@ -299,35 +273,30 @@ head(as.data.frame(colData(sce))[, c(
 )], 4)
 ```
 
-An honest note about this particular dataset: `sce1` was built from an
-annotation in which the rRNA loci had already been removed, so **no gene in
-`sce1` matches the rRNA pattern and `rrna_fraction` is exactly zero for every
-cell**.
+No feature name in `sce1` matches the default rRNA pattern, so the computed
+`rrna_fraction` is zero for every cell. This naming check cannot establish
+whether rRNA was absent from the original libraries or removed during
+processing.
 
 ```{r check-rrna}
 sum(grepl("^(rrs|rrl|rrf)", rownames(sce), ignore.case = TRUE))
 summary(sce$rrna_fraction)
 ```
 
-The ribosomal-protein fraction, by contrast, is informative here and does vary
-between arms:
+The following summary compares median ribosomal-protein fractions across
+the three treatment groups:
 
 ```{r summarise-ribo}
 round(tapply(sce$ribo_fraction, sce$treatments, median), 4)
 ```
 
-Note that the ordering is not monotonic in dose: the high-dose `PMB2` arm has
-the highest median ribosomal-protein fraction, above both the untreated
-control and the low-dose arm. That is a reminder to treat `ribo_fraction` as a
-covariate to inspect rather than a QC threshold to enforce -- it mixes
-translational state, growth phase and stress response, and these medians pool
-across all timepoints. Do not filter cells on it.
+These medians pool cells across timepoints and do not isolate a dose effect.
+The example therefore retains `ribo_fraction` for inspection and does not
+use it to filter cells.
 
-`FilterBacCells()` applies thresholds to those metrics. Because
-`rrna_fraction` is identically zero above, the `max_rrna_fraction` cutoff is a
-no-op on this dataset; we keep it in the call so the code is copy-pasteable
-for data where rRNA *is* annotated, but the cells actually removed here are
-removed on depth and complexity alone.
+`FilterBacCells()` applies thresholds to the QC metrics. The rRNA cutoff
+removes no cells here because all computed rRNA fractions are zero.
+Filtering in this example therefore depends on counts and detected features.
 
 ```{r filter-cells}
 sce <- FilterBacCells(
@@ -340,18 +309,18 @@ dim(sce)
 table(sce$treatments)
 ```
 
-Choose thresholds by looking at your own distributions rather than copying
-numbers. `min_counts = 50` is a reasonable floor for this protocol and would
-be absurdly permissive for mammalian data.
+Choose thresholds from the distributions and assay characteristics of your
+own data. The values above illustrate filtering for this dataset and are
+not universal cutoffs.
 
 # Integration across treatment groups
 
-In this experiment the three treatment arms were processed as separate
-batches, so `treatments` doubles as the batch variable. That makes it a
-deliberately hard and honest test case: any correction strong enough to erase
-the batch effect will also erase the drug effect. This is exactly the tension
-that the benchmarking section below is designed to expose, and it is why you
-should never accept an integration on faith.
+This example uses `treatments` as the batch variable, making batch and
+condition identical in the analysis. Any removed differences may therefore
+include the drug response. The examples demonstrate the integration functions;
+they cannot distinguish technical batch effects from treatment effects.
+Use recorded technical batches, with conditions represented across batches
+where possible, when evaluating correction in an experimental study.
 
 ## MNN correction
 
@@ -376,8 +345,8 @@ if (requireNamespace("batchelor", quietly = TRUE)) {
 
 ## Harmony correction
 
-`method = "harmony"` uses `r CRANpkg("harmony")`, likewise suggested and
-likewise guarded:
+`method = "harmony"` calls `r CRANpkg("harmony")`. The example runs when
+this optional package is installed:
 
 ```{r integrate-harmony}
 if (requireNamespace("harmony", quietly = TRUE)) {
@@ -399,17 +368,14 @@ Each backend writes its embedding to `reducedDims()` under
 
 ## Registering your own embedding
 
-`RegisterIntegrationEmbedding()` is the always-available path: it takes any
-cell-by-dimension matrix you computed yourself -- from a method scProkaR does
-not wrap, from a variational autoencoder, from a collaborator -- and registers
-it so that every downstream scProkaR function treats it like a native
-integration result. It depends on nothing beyond the package's own imports.
+`RegisterIntegrationEmbedding()` registers a cell-by-dimension matrix from
+an external analysis for use in downstream integration comparisons.
+The matrix must correspond to the cells in the object.
 
-Here we register a deliberately simple correction: per-batch centring of the
-PCA embedding, which removes the mean shift between treatment arms and nothing
-else. It is a useful baseline precisely because it is crude -- if a
-sophisticated method cannot beat mean-centring on your benchmark, that is
-worth knowing.
+Here, the registered matrix contains PCA coordinates centred within each
+treatment group. This removes differences in group means and illustrates
+registration without an additional integration package. As above, centring
+by treatment can also remove biological differences.
 
 ```{r register-embedding}
 pca_emb <- reducedDim(sce, "PCA")[, seq_len(20), drop = FALSE]
@@ -442,10 +408,9 @@ allowed. `BenchmarkIntegration()` includes registered methods and other
 `integrated_*` reductions by default, and accepts names without regard to case
 (for example, `methods = "SCVI"`).
 
-We now pick the reduction to carry forward. MNN is preferred when
-`r Biocpkg("batchelor")` was available; otherwise the registered embedding
-takes over, so the remainder of the vignette produces meaningful output on a
-minimal installation.
+The remaining examples use MNN when its embedding is available and the
+centred embedding otherwise. This choice keeps the examples runnable across
+installations; it does not establish which integration method is best.
 
 ```{r choose-reduction}
 integrated_names <- grep(
@@ -498,11 +463,10 @@ unintegrated_reduction <- if (
 unintegrated_reduction
 ```
 
-`RunIntegratedClustering()` builds a shared-nearest-neighbour graph on the
-corrected embedding and partitions it. `k` sets the size of the neighbourhood
-graph and `resolution` how finely that graph is cut; downstream analyses
-should always use clusters derived from the *integrated* space rather than the
-pre-integration ones.
+`RunIntegratedClustering()` builds and partitions a shared-nearest-neighbour
+graph from the selected embedding. `k` controls neighbourhood size and
+`resolution` controls partition granularity. Compare the resulting clusters
+with the uncorrected analysis before using them downstream.
 
 ```{r run-clustering}
 set.seed(101)
@@ -517,10 +481,9 @@ sce <- RunIntegratedClustering(
 table(sce$integrated_clusters)
 ```
 
-Cross-tabulating against the supplied biological labels shows how much of the
-known structure the integrated clustering recovers. A clean block-diagonal
-pattern means the two agree; substantial off-diagonal mass means the graph
-partition is splitting or merging the reference groups.
+Cross-tabulation compares the inferred clusters with the supplied reference
+labels. A reference group spread across several rows has been split;
+several reference groups in one row have been merged.
 
 ```{r compare-clusters}
 table(sce$integrated_clusters, sce$clusters)
@@ -566,9 +529,8 @@ PlotReduction(
 )
 ```
 
-`facet_by` splits one embedding into panels while holding the coordinates
-fixed, which is the right way to ask whether a cluster is present in every
-arm or driven by one:
+`facet_by` displays each treatment group using the same embedding
+coordinates, allowing occupied regions to be compared across groups:
 
 ```{r plot-facet}
 PlotReduction(
@@ -608,27 +570,21 @@ overview$integrated_by_batch
 overview$integrated_by_label
 ```
 
-How to read these. `unintegrated_by_batch` should show more batch separation
-than `integrated_by_batch` -- that is the correction doing its job.
-`integrated_by_label` should still separate the biological labels -- that is
-the correction *not* overdoing its job. `integrated_split` (the equivalent of
-splitting a dimension plot by condition) shows whether each arm populates the
-same regions. Remember the caveat from the previous section: here batch and
-treatment are confounded by design, so perfect batch mixing would be a red
-flag, not a success.
+Compare `unintegrated_by_batch` and `integrated_by_batch` for changes in
+group separation. Use `integrated_by_label` to inspect the reference labels
+and `integrated_split` to compare occupied regions across treatments.
+Because treatment is the batch variable here, increased mixing may reflect
+loss of the drug response.
 
 # Benchmarking the integration
 
-Eyeballing embeddings is not enough, and it is easy to talk yourself into
-liking whichever picture you drew last. `BenchmarkIntegration()` scores every
-candidate embedding on two families of metrics and ranks them.
+`BenchmarkIntegration()` complements the plots with metrics of batch removal
+and biological conservation, then ranks the candidate embeddings.
 
-**These are scIB-inspired reimplementations, not the reference scIB
-implementations.** The metric *names* follow Luecken et al. (2022) and the
-intent is the same, but the code here is independent, is tuned to run quickly
-on sparse bacterial data, and will not reproduce reference scIB numbers
-exactly. Use the scores to compare methods *within* one run; do not quote them
-as scIB values or compare them across studies.
+The metrics are inspired by scIB (Luecken et al., 2022), but the
+implementations differ from the reference scIB software. Compare methods
+within the same run; the reported values should not be presented as
+reference scIB scores or compared directly across studies.
 
 ```{r run-benchmark}
 bench_methods <- c("PCA", integrated_names)
@@ -644,17 +600,18 @@ bench$ranking
 
 The two families are:
 
-* **Batch removal** -- `pcr_batch` (how much variance in the principal
-  components is still explained by batch), `ilisi` (local batch mixing),
-  `kbet_like` (whether each neighbourhood's batch composition matches the
-  global one), and `graph_connectivity` (whether cells of the same label stay
-  connected in the kNN graph).
-* **Biological conservation** -- `clisi` (local label purity), `ari` and `nmi`
-  (agreement between a graph clustering of the embedding and the reference
-  labels), and `silhouette` (label separation in the embedding).
+* **Batch removal** includes `pcr_batch`, one minus the mean fraction of
+  embedding-coordinate variance explained by batch; `ilisi`, local batch
+  mixing; and `kbet_like`, neighbourhood agreement with overall batch
+  composition. This category also includes `graph_connectivity`, which
+  measures connectivity within reference labels in the nearest-neighbour graph.
+* **Biological conservation** includes `clisi`, local label purity; `ari`
+  and `nmi`, agreement between k-means clusters and reference labels; and
+  `silhouette`, separation of reference labels in the embedding.
 
-All metrics are rescaled so that higher is better, and `ranking` is the mean
-across metrics.
+The `score` column is oriented so higher values indicate better performance
+under each metric. `ranking` averages the available scores for each method;
+the `value` column retains each metric's returned value.
 
 ```{r benchmark-scores}
 head(bench$scores, 8)
@@ -664,10 +621,10 @@ head(bench$scores, 8)
 bench$plots$overall
 ```
 
-The trade-off plot is usually the most informative single figure: batch
-removal on the x-axis, biological conservation on the y-axis. Methods towards
-the top right are doing well on both; a method far to the right but low down
-has mixed the batches by destroying biology.
+The trade-off plot displays batch removal on the x-axis and biological
+conservation on the y-axis. Higher values indicate better scores in each
+category. With treatment used as batch, these scores alone cannot establish
+whether biological variation has been preserved.
 
 ```{r benchmark-tradeoff}
 bench$plots$tradeoff
@@ -677,34 +634,29 @@ bench$plots$tradeoff
 bench$plots$key_metrics
 ```
 
-The remaining panels -- `bench$plots$batch_removal`,
-`bench$plots$bio_conservation` and `bench$plots$heatmap` -- break the same
-scores down by category and by individual metric.
+The remaining panels, `bench$plots$batch_removal`,
+`bench$plots$bio_conservation` and `bench$plots$heatmap`, show the scores
+by category and individual metric.
 
-Do not read the overall ranking as a verdict. A single mean over metrics that
-measure opposing goals is a summary, not a decision; pick the embedding whose
-*position on the trade-off* matches what you need from the analysis. In a
-confounded design like this one, an embedding that scores modestly on batch
-removal but preserves the drug-response structure is the right choice.
+Inspect individual metrics alongside the experimental design and plots
+before selecting an embedding. The overall ranking averages different goals
+and cannot resolve the batch-treatment confounding in this example.
 
 # Pseudobulk differential expression
 
-Per-cell differential testing is poorly calibrated when cells from the same
-sample are treated as independent replicates. scProkaR therefore takes the
-pseudobulk route: sum counts within each biological replicate, then test the
-resulting sample-level matrix with `r Biocpkg("edgeR")`, which is a
-well-understood negative-binomial framework for exactly this kind of data.
+Pseudobulk analysis sums cell counts within independent biological replicates
+and tests the resulting sample-level counts with `r Biocpkg("edgeR")`.
+The experimental replicate remains the unit of inference.
 
 ## Defining replicates
 
-This dataset has one library per treatment-by-timepoint combination and no
-true biological replication, so we split the cells of each sample into three
-pseudo-replicates in order to demonstrate the mechanics. **This is a teaching
-device, not a statistical recommendation.** Pseudo-replicates share the
-technical and biological idiosyncrasies of their parent library, so they
-understate the true variance and inflate significance. In a real study,
-aggregate over genuine independent replicates -- separate cultures, separate
-animals, separate donors.
+The packaged metadata identify one sample per treatment and timepoint,
+without independent biological replicate labels. To demonstrate the code,
+the cells from each sample are split into three artificial groups.
+These groups do not provide biological replication, so the resulting
+p-values and false discovery rates (FDRs) cannot support biological conclusions.
+For experimental analyses, aggregate cells from independent samples such as
+separately grown cultures.
 
 ```{r assign-replicates}
 set.seed(101)
@@ -719,10 +671,10 @@ table(sce$sample, sce$replicate)
 
 ## Aggregating and normalising
 
-`aggregate_pseudobulk()` sums counts over every unique combination of
-`sample_cols` and carries the corresponding sample-level annotation into the
-`colData()` of the result, which is itself a `SingleCellExperiment`.
-`min_cells` drops aggregates built from too few cells to be trustworthy.
+`aggregate_pseudobulk()` sums counts for each unique combination of
+`sample_cols` and stores the corresponding annotations in the result's
+`colData()`. It returns a `SingleCellExperiment`; `min_cells` excludes
+aggregates with fewer than the specified number of cells.
 
 ```{r aggregate-pseudobulk}
 pb <- aggregate_pseudobulk(
@@ -750,9 +702,9 @@ pb <- normalize_pseudobulk(pb, method = "TMM")
 summary(pb$norm.factors)
 ```
 
-A quick PCA of the pseudobulk profiles is the cheapest sanity check available:
-replicates of a sample should sit together, and the dominant axis should
-correspond to something you designed.
+PCA of the pseudobulk profiles helps identify sample differences and
+outliers. Here, the artificial groups share their source library and should
+not be interpreted as independent replicates.
 
 ```{r pseudobulk-pca}
 pb_pca <- stats::prcomp(
@@ -772,14 +724,14 @@ PlotReduction(pb, reduction = "pb_pca", colour_by = "timepoint_factor",
 
 ## Pairwise contrasts
 
-`run_edger_pairwise_de()` fits a quasi-likelihood negative-binomial model and
-extracts contrasts. Below, each timepoint is compared with the hour-0
-baseline, with treatment included as a covariate so that arm-specific
-offsets are absorbed by the model.
+`run_edger_pairwise_de()` fits an edgeR quasi-likelihood negative-binomial
+model and extracts the requested contrasts. Here, each timepoint is compared
+with hour 0 in an additive model that includes treatment as a covariate.
 
-Interpret these contrasts carefully: hour 0 exists only in the control arm, so
-`4_vs_0` describes overall movement away from the untreated baseline rather
-than a perfectly balanced treatment-adjusted comparison.
+Hour 0 is represented only by the control group. The time contrasts
+therefore rely on the additive model assumption and do not estimate separate
+treatment-specific time responses. The artificial grouping above further
+limits these results to demonstration.
 
 ```{r pairwise-de}
 pairwise_time <- run_edger_pairwise_de(
@@ -794,12 +746,10 @@ pairwise_time <- run_edger_pairwise_de(
 names(pairwise_time$tables)
 ```
 
-`$tables` holds one `data.frame` per contrast and `$combined_table` stacks
-them with a `contrast` column, which makes summarising across contrasts easy.
-Note that edgeR's `filterByExpr()` step removes genes with insufficient counts
-across the design before testing, so the tables contain fewer than the 3722
-input genes -- a larger effect here than it would be on the full dataset,
-because we subsampled the cells.
+`$tables` contains one `data.frame` per contrast; `$combined_table` combines
+them with a `contrast` column. edgeR's `filterByExpr()` removes genes with
+insufficient expression for the design, so the tables can contain fewer
+than the 3722 input features.
 
 ```{r pairwise-summary}
 table(
@@ -813,9 +763,9 @@ tab_4_vs_0 <- pairwise_time$tables[["4_vs_0"]]
 head(tab_4_vs_0[order(tab_4_vs_0$FDR), c("gene", "logFC", "FDR")], 10)
 ```
 
-A volcano plot shows effect size against evidence. Points beyond the vertical
-guides and above the horizontal one pass both the fold-change and the FDR
-threshold; the labelled genes are the strongest hits.
+The volcano plot displays log-fold change against statistical significance.
+The guide lines mark the fold-change and FDR thresholds; results here remain
+illustrative because the groups are not biological replicates.
 
 ```{r pairwise-volcano}
 plot_pairwise_de_volcano(
@@ -827,9 +777,8 @@ plot_pairwise_de_volcano(
 )
 ```
 
-The companion MA plot puts log-fold-change against average abundance, which is
-the better view for spotting fold changes that are driven purely by
-low-expression noise:
+The MA plot displays log-fold change against average abundance, helping
+identify large estimated changes among low-expression genes:
 
 ```{r pairwise-ma}
 plot_pairwise_de_ma(
@@ -839,9 +788,8 @@ plot_pairwise_de_ma(
 )
 ```
 
-When you want an explicit comparison between composite groups --
-"PMB2 at 7 hours versus control at 7 hours" -- combine the grouping columns and
-supply the pairs directly:
+To compare composite groups, such as PMB2 versus control at 7 hours,
+combine the grouping columns and supply the contrast directly:
 
 ```{r pairwise-composite}
 pairwise_dose <- run_edger_pairwise_de(
@@ -871,16 +819,15 @@ plot_pairwise_de_volcano(
 
 ## Time-course testing with splines
 
-Pairwise contrasts discretise time. `run_edger_spline_de()` instead treats
-time as continuous, fits a natural cubic spline basis, and tests all spline
-coefficients jointly -- so a gene is called significant if its expression
-changes with time in *any* smooth way, including non-monotonic responses that
-a pair of endpoints would miss. With `condition_col` set, a separate fit is
-returned for each treatment arm.
+`run_edger_spline_de()` models time with a natural cubic spline basis and
+jointly tests its coefficients for evidence of temporal variation.
+The model can represent non-monotonic responses within the chosen spline
+basis. With `condition_col` specified, it fits each treatment group separately.
 
-Choose `df` against the number of distinct timepoints you actually have. The
-treated arms here have only three (1, 4 and 7 hours), so `df = 2` is the
-sensible ceiling; `df = 3` would leave almost no residual degrees of freedom.
+Choose spline degrees of freedom (`df`) in relation to the number of
+observed timepoints and the model design. The treated groups have three
+timepoints, so this example uses `df = 2`. Check model rank and residual
+degrees of freedom before interpreting tests.
 
 ```{r spline-de}
 spline_de <- run_edger_spline_de(
@@ -902,9 +849,9 @@ table(
 )
 ```
 
-More genes changing over time under polymyxin B than in the untreated control
-is what you would hope to see: the control arm captures baseline drift such as
-growth-phase transitions, and the treated arms add the drug response on top.
+The counts above summarise genes passing the selected FDR cutoff in
+each fit. They illustrate the output format; artificial replicate groups
+prevent interpretation of these counts as evidence of a treatment effect.
 
 ```{r spline-top-genes}
 spline_top <- spline_de$combined_table[
@@ -914,8 +861,8 @@ spline_top <- spline_de$combined_table[
 head(spline_top, 10)
 ```
 
-`plot_time_series_deg_curves()` draws the fitted trajectories for chosen genes
-so the shape of each response is visible, not just its p-value:
+`plot_time_series_deg_curves()` displays the expression curves for selected
+genes, allowing the temporal patterns to be inspected:
 
 ```{r spline-curves}
 curve_genes <- head(unique(spline_top$gene), 6)
@@ -927,17 +874,14 @@ normalisation and testing into one function.
 
 # Where to go next
 
-The trajectory side of the package -- Time Aware Trajectory Analysis, a
-time-informed trajectory abstraction for perturbation time courses -- is
-covered in the companion vignette, `vignette("tata-workflow", package =
-"scProkaR")`.
+The companion vignette, `vignette("tata-workflow", package = "scProkaR")`,
+covers Time Aware Trajectory Analysis for perturbation time courses.
 
-Because the object is a plain `SingleCellExperiment` throughout, you can also
-continue in the wider ecosystem: `r Biocpkg("scater")` for further plotting,
-`r Biocpkg("scran")` for marker detection, or any Bioconductor package that
-accepts a `SingleCellExperiment`.
+The cell-level `SingleCellExperiment` can also be used with
+`r Biocpkg("scater")` for plotting, `r Biocpkg("scran")` for marker analysis,
+and other tools that accept this container.
 
-# References and further reading
+# Further reading
 
 * Amezquita RA, Lun ATL, Becht E, *et al.* (2020). Orchestrating single-cell
   analysis with Bioconductor. *Nature Methods* 17, 137-145.
