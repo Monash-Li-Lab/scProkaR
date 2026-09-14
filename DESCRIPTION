@@ -4,9 +4,10 @@ Title: Microbial Single-Cell RNA-Seq Analysis for Bacterial Systems
 Version: 0.99.0
 Authors@R:
     c(
+      person("Jinxin", "Zhao", email = "jinxin.zhao@monash.edu",
+             role = "aut", "cre")
       person("Ning", "Liu", email = "ning.liu@adelaide.edu.au",
-             role = c("aut", "cre")),
-      person("Jinxin", "Zhao", role = "aut")
+             role = c("aut"))
     )
 Description: scProkaR provides a SingleCellExperiment-centred workflow for
     microbial single-cell RNA sequencing data. It standardises bacterial
