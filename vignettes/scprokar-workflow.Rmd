@@ -16,8 +16,7 @@ abstract: |
   This vignette demonstrates scProkaR using a bacterial single-cell RNA-seq
   time course with two polymyxin B concentrations and an untreated control.
   It covers data import, quality control, integration, clustering,
-  visualisation and pseudobulk differential expression with edgeR. Cell-
-  level data are stored in a SingleCellExperiment. The integration and
+  visualisation and pseudobulk differential expression with edgeR. Cell-level data are stored in a SingleCellExperiment. The integration and
   differential-expression sections explain the limitations of the example
   design.
 vignette: >
@@ -850,7 +849,7 @@ table(
 )
 ```
 
-The following counts summarise genes passing the selected FDR cutoff in
+The counts above summarise genes passing the selected FDR cutoff in
 each fit. They illustrate the output format; artificial replicate groups
 prevent interpretation of these counts as evidence of a treatment effect.
 
@@ -882,7 +881,7 @@ The cell-level `SingleCellExperiment` can also be used with
 `r Biocpkg("scater")` for plotting, `r Biocpkg("scran")` for marker analysis,
 and other tools that accept this container.
 
-# References and further reading
+# Further reading
 
 * Amezquita RA, Lun ATL, Becht E, *et al.* (2020). Orchestrating single-cell
   analysis with Bioconductor. *Nature Methods* 17, 137-145.
