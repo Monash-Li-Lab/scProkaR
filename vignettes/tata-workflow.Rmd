@@ -17,8 +17,7 @@ abstract: |
   and sampling times to construct a graph of cell states. This vignette
   demonstrates the individual functions and the run_tata() wrapper using a
   simulated branching response to three drugs. It compares time-informed
-  and topology-only runs, then shows how to inspect pseudotime, terminal-
-  state probabilities, branch assignments and gene-expression trends.
+  and topology-only runs, then shows how to inspect pseudotime, terminal-state probabilities, branch assignments and gene-expression trends.
   Comparisons with the supplied time labels assess consistency with those
   labels.
 vignette: >
@@ -144,7 +143,8 @@ sce$timepoint_factor <- factor(
 sce
 ```
 
-The design is a balanced condition-by-time grid:
+All three conditions are represented at each sampled time, with varying
+cell numbers:
 
 ```{r simulation-design}
 with(
@@ -750,7 +750,7 @@ branch_result <- compute_tata_branch_probabilities(
 branch_result$terminal_clusters
 ```
 
-Three quantities are derived from the probability vector of each cell:
+The terminal-state probabilities are summarised by the following quantities:
 
 * **Entropy** is normalised Shannon entropy over terminal-state
   probabilities. Higher values indicate more diffuse model predictions;
