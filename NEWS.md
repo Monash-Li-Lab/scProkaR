@@ -1,3 +1,24 @@
+# scProkaR 0.99.1
+
+## Fixes
+
+* Resolve the legacy Harmony matrix function only when exported, avoiding
+  missing-export warnings with current Harmony versions.
+* Use `scrapper::modelGeneVariances()` for optional feature selection,
+  ranking genes by residual variance. The updated trend fitter can change
+  the selected features relative to the previous `scran` implementation.
+* Apply the existing MNN cosine normalization explicitly before `fastMNN()`,
+  avoiding its deprecated normalization dependency while preserving the
+  normalization, feature subset and caller-supplied backend settings.
+* Compute per-cell QC directly with the existing sparse-aware sums,
+  avoiding the newly deprecated `scuttle::perCellQCMetrics()` call while
+  preserving the metrics for single-cell and multi-cell objects.
+* Use exact PCA for tiny matrices or large requested fractions of the
+  singular values, avoiding the current `irlba` small-matrix error and
+  high-rank warnings. Retain sparse iterative PCA for low-rank large data.
+* Use R's default package citation until an associated publication is
+  available, removing the custom citation without a publication DOI.
+
 # scProkaR 0.99.0
 
 ## New

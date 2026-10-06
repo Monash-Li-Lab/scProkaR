@@ -71,7 +71,7 @@ Processing records are stored in `metadata(sce)$scProkaR`.
 
 These objects can be used with `r Biocpkg("scater")`, `r Biocpkg("scran")`
 and other Bioconductor tools that accept a `SingleCellExperiment`.
-scProkaR uses scran for feature selection when available,
+scProkaR uses `r Biocpkg("scrapper")` for feature selection when available,
 `r Biocpkg("batchelor")` for MNN correction, and `r Biocpkg("edgeR")` for
 pseudobulk testing. Benchmarking, modelling and plotting functions return
 other result types, as described in their help pages.

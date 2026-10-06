@@ -206,9 +206,10 @@ NULL
     }
 
     if ("logcounts" %in% SummarizedExperiment::assayNames(sce) &&
-        requireNamespace("scran", quietly = TRUE)) {
-        var_fit <- scran::modelGeneVar(sce, assay.type = "logcounts")
-        ord <- order(var_fit$bio, decreasing = TRUE)
+        requireNamespace("scrapper", quietly = TRUE)) {
+        logx <- SummarizedExperiment::assay(sce, "logcounts")
+        var_fit <- scrapper::modelGeneVariances(logx)
+        ord <- order(var_fit$statistics$residuals, decreasing = TRUE)
     } else {
         logx <- SummarizedExperiment::assay(sce, "logcounts")
         n_cells <- ncol(logx)
@@ -244,8 +245,8 @@ NULL
     full_rank <- min(nrow(x_sparse), ncol(x_sparse))
 
     use_irlba <- requireNamespace("irlba", quietly = TRUE) &&
-        ncol(x_sparse) > 2 &&
-        rank_k < full_rank
+        full_rank >= 6 &&
+        rank_k < full_rank / 2
 
     if (use_irlba) {
         center <- Matrix::colMeans(x_sparse)
@@ -262,9 +263,10 @@ NULL
     } else {
         if ((nrow(x_sparse) * ncol(x_sparse)) > 5e7) {
             stop(
-                "Sparse-aware PCA requires the optional package 'irlba' for ",
-                "larger datasets. ",
-                "Install it or reduce the feature set before running ",
+                "Sparse-aware PCA for larger datasets requires 'irlba' ",
+                "and a requested rank below half the smaller dimension. ",
+                "Install it or reduce the feature set or requested ",
+                "number of components before running ",
                 "`run_unintegrated = TRUE`.",
                 call. = FALSE
             )

@@ -209,9 +209,8 @@ FilterBacCells <- function(
 #' Per-cell quality-control metrics
 #'
 #' Counts library size, detected features, and the share of counts falling on
-#' the rRNA and ribosomal-protein feature sets. The work is delegated to
-#' `scuttle::perCellQCMetrics()`, which errors on objects with fewer than two
-#' cells, so a single-cell object takes an equivalent direct path instead.
+#' the rRNA and ribosomal-protein feature sets directly from the counts.
+#' The same sparse-aware calculation handles any number of cells.
 #'
 #' @param sce A `SingleCellExperiment` with a `counts` assay.
 #' @param rrna_index,ribo_index Logical vectors over `rownames(sce)`.
@@ -222,28 +221,16 @@ FilterBacCells <- function(
 .scprokar_per_cell_qc <- function(sce, rrna_index, ribo_index) {
     counts <- SummarizedExperiment::assay(sce, "counts")
 
-    if (ncol(sce) >= 2L) {
-        qc <- scuttle::perCellQCMetrics(
-            sce,
-            assay.type = "counts",
-            subsets = list(rrna = which(rrna_index), ribo = which(ribo_index))
-        )
-        totals <- as.numeric(qc$sum)
-        detected <- as.numeric(qc$detected)
-        rrna_counts <- as.numeric(qc$subsets_rrna_sum)
-        ribo_counts <- as.numeric(qc$subsets_ribo_sum)
-    } else {
-        totals <- as.numeric(Matrix::colSums(counts))
-        detected <- as.numeric(Matrix::colSums(counts > 0))
-        subset_sum <- function(index) {
-            if (!any(index)) {
-                return(rep(0, ncol(counts)))
-            }
-            as.numeric(Matrix::colSums(counts[index, , drop = FALSE]))
+    totals <- as.numeric(Matrix::colSums(counts))
+    detected <- as.numeric(Matrix::colSums(counts > 0))
+    subset_sum <- function(index) {
+        if (!any(index)) {
+            return(rep(0, ncol(counts)))
         }
-        rrna_counts <- subset_sum(rrna_index)
-        ribo_counts <- subset_sum(ribo_index)
+        as.numeric(Matrix::colSums(counts[index, , drop = FALSE]))
     }
+    rrna_counts <- subset_sum(rrna_index)
+    ribo_counts <- subset_sum(ribo_index)
 
     ## A cell with an empty library has no meaningful share; report 0 rather
     ## than the NaN that dividing by zero would give.

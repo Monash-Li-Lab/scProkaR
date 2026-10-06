@@ -101,7 +101,7 @@ Several backends are optional and are only needed for specific steps:
 * `uwot` for UMAP
 * `SeuratObject` for reading Seurat objects into `CreateBacObject()`
 * `DropletUtils` for reading 10x Genomics directories
-* `scran`, `irlba`, `BiocSingular`, `BiocNeighbors`, `RANN`, `FNN`, `cluster`
+* `scrapper`, `irlba`, `BiocSingular`, `BiocNeighbors`, `RANN`, `FNN`, `cluster`
   for individual preprocessing and neighbour-search steps
 
 ## Getting help

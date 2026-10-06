@@ -87,9 +87,16 @@ IntegrateBacData <- function(
                 requireNamespace("BiocSingular", quietly = TRUE)) {
             mnn_args$BSPARAM <- BiocSingular::ExactParam()
         }
+        prepared <- .scprokar_prepare_mnn_batches(
+            split_sce, features = features, args = mnn_args
+        )
         corrected <- do.call(
             batchelor::fastMNN,
-            c(split_sce, list(subset.row = features, d = max(dims)), mnn_args)
+            c(
+                prepared$batches,
+                list(subset.row = features, d = max(dims)),
+                prepared$args
+            )
         )
         embedding <- SingleCellExperiment::reducedDim(
             corrected, "corrected"
@@ -865,6 +872,36 @@ RegisterExistingIntegrationEmbeddings <- function(
 }
 
 #' @keywords internal
+.scprokar_prepare_mnn_batches <- function(batches, features, args) {
+    cos_norm <- if ("cos.norm" %in% names(args)) args$cos.norm else TRUE
+    if (!cos_norm) {
+        return(list(batches = batches, args = args))
+    }
+    assay_type <- if ("assay.type" %in% names(args)) {
+        args$assay.type
+    } else {
+        "logcounts"
+    }
+    cosine_args <- list(mode = "l2norm", subset.row = features)
+    if ("BPPARAM" %in% names(args)) {
+        cosine_args$BPPARAM <- args$BPPARAM
+    }
+    batches <- lapply(batches, function(sce) {
+        x <- SummarizedExperiment::assay(sce, assay_type)
+        l2 <- do.call(batchelor::cosineNorm, c(list(x = x), cosine_args))
+        ## Match fastMNN's column scaling, including its zero-norm floor,
+        ## without the deprecated scuttle::normalizeCounts() call.
+        normalized <- Matrix::t(Matrix::t(x) / pmax(l2, 1e-8))
+        dimnames(normalized) <- dimnames(x)
+        SummarizedExperiment::assay(sce, assay_type) <- normalized
+        sce
+    })
+    ## The input is already cosine-normalized; avoid applying it twice.
+    args$cos.norm <- FALSE
+    list(batches = batches, args = args)
+}
+
+#' @keywords internal
 .scprokar_run_harmony <- function(pca_embedding, meta_data, batch_col, ...) {
     extra <- list(...)
     n_cells <- nrow(pca_embedding)
@@ -915,6 +952,7 @@ RegisterExistingIntegrationEmbeddings <- function(
     }
 
     if ("HarmonyMatrix" %in% getNamespaceExports("harmony")) {
+        harmony_fun <- getExportedValue("harmony", "HarmonyMatrix")
         args_matrix <- c(
             list(
                 data_mat = pca_embedding,
@@ -925,7 +963,7 @@ RegisterExistingIntegrationEmbeddings <- function(
             extra
         )
         out <- tryCatch(
-            suppressWarnings(do.call(harmony::HarmonyMatrix, args_matrix)),
+            suppressWarnings(do.call(harmony_fun, args_matrix)),
             error = function(e) NULL
         )
         if (!is.null(out)) {

@@ -1,7 +1,7 @@
 Package: scProkaR
 Type: Package
 Title: Microbial Single-Cell RNA-Seq Analysis for Bacterial Systems
-Version: 0.99.0
+Version: 0.99.1
 Authors@R:
     c(
       person("Jinxin", "Zhao", email = "jinxin.zhao@monash.edu",
@@ -33,7 +33,6 @@ Imports:
     Matrix,
     methods,
     S4Vectors,
-    scuttle,
     SingleCellExperiment,
     splines,
     stats,
@@ -52,7 +51,7 @@ Suggests:
     knitr,
     RANN,
     rmarkdown,
-    scran,
+    scrapper (>= 1.0.0),
     SeuratObject,
     testthat (>= 3.0.0),
     uwot

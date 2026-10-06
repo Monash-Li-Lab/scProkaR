@@ -29,8 +29,7 @@ test_that("FilterBacCells records filtering summary", {
 })
 
 test_that("RunBacQC handles a single-cell object", {
-    ## scuttle::perCellQCMetrics() errors on objects with fewer than two
-    ## cells, so RunBacQC takes a direct path there. Guard that it still works.
+    ## The direct QC calculation must also handle a single-cell library.
     counts <- Matrix::Matrix(
         matrix(
             c(4, 6, 2, 8, 0, 5),
